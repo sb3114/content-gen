@@ -1,0 +1,31 @@
+# ── Secrets & credentials ─────────────────────────────────────────────────────
+# NEVER commit filled-in secrets files.
+# Use scripts/set-secrets.sh.example → copy to ~/ and source before docker compose up.
+*.secrets.sh
+*-secrets.sh
+secrets.env
+.secrets
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+.eggs/
+
+# Docker
+.docker/
+
+# Data directory (may contain downloaded content)
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}New Job — Content Engine{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">New Job</h1>
+    <p class="page-subtitle">Provide inputs and the pipeline will research, plan, write, and prepare for review.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  <form action="/jobs" method="post">
+    
+    <div class="section-header">
+      <h2 class="section-title">Step 1 — Content</h2>
+    </div>
+
+    <div class="form-group">
+      <label for="topic" class="form-label">Article Topic <span class="required">*</span></label>
+      <input
+        id="topic" name="topic" type="text" required
+        class="form-input"
+        placeholder="e.g. How to implement zero-trust security for remote teams"
+      />
+      <p class="form-hint">Be specific — this is the seed for the entire pipeline.</p>
+    </div>
+
+    <div class="form-group">
+      <label for="seed_keywords" class="form-label">Seed Keywords</label>
+      <textarea
+        id="seed_keywords" name="seed_keywords"
+        class="form-textarea" rows="3"
+        placeholder="zero trust security&#10;remote work security&#10;network access control"
+      ></textarea>
+      <p class="form-hint">One keyword per line. Used for pytrends + DataForSEO research.</p>
+    </div>
+
+    <div class="form-group">
+      <label for="user_titles" class="form-label">Your Title Ideas</label>
+      <textarea
+        id="user_titles" name="user_titles"
+        class="form-textarea" rows="3"
+        placeholder="The Complete Guide to Zero Trust Security in 2025&#10;Why Zero Trust is the Future of Remote Work Security"
+      ></textarea>
+      <p class="form-hint">One title per line. Gemini will choose or improve on these.</p>
+    </div>
+
+    <div class="form-group">
+      <label for="competitor_urls" class="form-label">Competitor URLs to Analyse</label>
+      <textarea
+        id="competitor_urls" name="competitor_urls"
+        class="form-textarea" rows="4"
+        placeholder="https://competitor.com/blog/zero-trust-guide&#10;https://anotherblog.com/remote-security"
+      ></textarea>
+      <p class="form-hint">One URL per line. Content will be scraped and summarised.</p>
+    </div>
+
+    <div class="section-header" style="margin-top: 2rem;">
+      <h2 class="section-title">Step 2 — Publishing Targets</h2>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Where should this be published?</label>
+      <div style="display: flex; gap: 1rem;">
+        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
+          <input type="checkbox" name="publish_targets" value="wordpress" checked />
+          <span>🌐 WordPress Blog</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
+          <input type="checkbox" name="publish_targets" value="linkedin" checked />
+          <span>💼 LinkedIn Post</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="section-header" style="margin-top: 2rem;">
+      <h2 class="section-title">Step 3 — Schedule</h2>
+    </div>
+    <div class="form-group">
+      <label for="scheduled_at" class="form-label">Scheduled Publish Time (Optional)</label>
+      <input
+        id="scheduled_at" name="scheduled_at" type="datetime-local"
+        class="form-input"
+      />
+      <p class="form-hint">Leave blank to publish immediately after your manual approval.</p>
+    </div>
+
+    <div class="form-actions">
+      <a href="/" class="btn btn--ghost">Cancel</a>
+      <button type="submit" class="btn btn--primary">
+        ✦ Start Job Pipeline
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

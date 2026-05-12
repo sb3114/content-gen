@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Company Context Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Company Context</h1>
+  <p class="text-dim">Configure the foundational memory that the AI uses to plan, write, and refine your articles.</p>
+</div>
+
+<form action="/settings" method="post" class="card" style="max-width: 800px; margin: 0 auto;">
+  
+  <div class="form-group">
+    <label class="form-label" for="company_description">Company Description</label>
+    <textarea name="company_description" id="company_description" class="form-input" rows="4" placeholder="What does your company do? What are your core products or services?">{{ settings.company_description or '' }}</textarea>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label" for="marketing_strategy">Marketing Strategy</label>
+    <textarea name="marketing_strategy" id="marketing_strategy" class="form-input" rows="3" placeholder="What is your high-level marketing strategy or current focus?">{{ settings.marketing_strategy or '' }}</textarea>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label" for="icp">Ideal Customer Profile (ICP)</label>
+    <textarea name="icp" id="icp" class="form-input" rows="3" placeholder="Who is your ideal customer? Industry, company size, roles, pain points?">{{ settings.icp or '' }}</textarea>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label" for="audiences">Target Audiences</label>
+    <textarea name="audiences" id="audiences" class="form-input" rows="2" placeholder="Primary and secondary audiences (e.g. CTOs, HR Directors).">{{ settings.audiences or '' }}</textarea>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label" for="core_pillars">Core Pillars / Messaging</label>
+    <textarea name="core_pillars" id="core_pillars" class="form-input" rows="3" placeholder="What are the 3-4 core pillars of your messaging?">{{ settings.core_pillars or '' }}</textarea>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label" for="tone_of_voice">Tone of Voice</label>
+    <textarea name="tone_of_voice" id="tone_of_voice" class="form-input" rows="2" placeholder="e.g. Professional yet conversational, authoritative but approachable.">{{ settings.tone_of_voice or '' }}</textarea>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn--primary btn--large">Save Settings</button>
+  </div>
+
+</form>
+{% endblock %}

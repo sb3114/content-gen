@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Content Engine{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Workflow Jobs</h1>
+    <p class="page-subtitle">{{ jobs|length }} total &mdash; review, edit, and publish your AI-generated articles</p>
+  </div>
+  <a href="/new" class="btn btn--primary">
+    <span>+</span> Create Job
+  </a>
+</div>
+
+{% if not jobs %}
+<div class="empty-state">
+  <div class="empty-icon">✦</div>
+  <h2>No jobs yet</h2>
+  <p>Create your first job to get started.</p>
+  <a href="/new" class="btn btn--primary">Create Job</a>
+</div>
+{% else %}
+<div class="job-grid">
+  {% for job in jobs %}
+  <a href="/jobs/{{ job.id }}" class="job-card">
+    <div class="job-card__header">
+      <span class="badge badge--{{ job.status.value }}">{{ job.status.value.replace('_', ' ') }}</span>
+      <span class="job-card__date">{{ job.created_at.strftime('%b %d, %H:%M') }}</span>
+    </div>
+
+    <h3 class="job-card__title">
+      {{ job.reviewed_title or job.content_plan.chosen_title if job.content_plan else job.topic }}
+    </h3>
+
+    <p class="job-card__topic">Topic: {{ job.topic }}</p>
+
+    <div class="job-card__meta">
+      {% if job.publish_wordpress %}
+        <span class="tag" title="WordPress">🌐 WP</span>
+      {% endif %}
+      {% if job.publish_linkedin %}
+        <span class="tag" title="LinkedIn">💼 IN</span>
+      {% endif %}
+      {% if job.scheduled_at %}
+        <span class="tag" title="Scheduled Time">⏱️ {{ job.scheduled_at.strftime('%m/%d %H:%M') }}</span>
+      {% endif %}
+      {% if job.current_step %}
+        <span class="tag tag--active">⟳ {{ job.current_step }}</span>
+      {% endif %}
+    </div>
+
+    {% if job.wp_post_url %}
+    <div class="job-card__links">
+      <span class="link-chip" onclick="event.preventDefault(); window.open('{{ job.wp_post_url }}')">
+        🌐 WordPress Draft
+      </span>
+    </div>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

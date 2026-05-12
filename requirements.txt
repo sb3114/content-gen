@@ -1,0 +1,28 @@
+fastapi[standard]==0.115.12
+uvicorn[standard]==0.34.0
+jinja2==3.1.6
+python-multipart==0.0.20
+
+# Database
+sqlmodel==0.0.22
+asyncpg==0.30.0
+alembic==1.15.2
+
+# Gemini
+google-generativeai==0.8.4
+
+# Keyword research
+pytrends==4.9.2
+httpx==0.28.1
+
+# Scraping
+trafilatura==2.0.0
+
+# Content processing
+markdown==3.8
+python-slugify==8.0.4
+
+# Config & utils
+pydantic-settings==2.9.1
+python-dotenv==1.1.0
+itsdangerous==2.2.0

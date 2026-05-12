@@ -1,0 +1,14 @@
+{% if job.status.value in ['pending', 'running'] %}
+<div class="status-card status-card--running"
+     hx-get="/jobs/{{ job.id }}/status"
+     hx-trigger="every 4s"
+     hx-swap="outerHTML">
+  <div class="spinner"></div>
+  <div>
+    <p class="status-card__title">Pipeline running…</p>
+    <p class="status-card__sub">Step: {{ job.current_step or 'starting' }}</p>
+  </div>
+</div>
+{% else %}
+<script>window.location.reload();</script>
+{% endif %}

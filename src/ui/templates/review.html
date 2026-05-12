@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Review: {{ job.topic }} — Content Engine{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title review-title">
+      {{ job.reviewed_title or job.topic }}
+    </h1>
+    <div class="review-meta">
+      <span class="badge badge--{{ job.status.value }}">{{ job.status.value.replace('_', ' ') }}</span>
+      <span class="meta-text">Created {{ job.created_at.strftime('%B %d, %Y at %H:%M') }}</span>
+      {% if job.current_step %}
+        <span class="meta-text running-pulse">⟳ Running: {{ job.current_step }}</span>
+      {% endif %}
+      {% if job.input_tokens_used or job.output_tokens_used %}
+        <span class="badge" id="token-badge" style="background-color: var(--bg-card); border: 1px solid var(--border-light); color: var(--text-dim); margin-left: auto;">
+          ⚡ Tokens: {{ "{:,}".format(job.input_tokens_used or 0) }} IN | {{ "{:,}".format(job.output_tokens_used or 0) }} OUT
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  <a href="/" class="btn btn--ghost">← Dashboard</a>
+</div>
+
+{# ── Pipeline Diagram ────────────────────────────────────────────────────── #}
+<div class="pipeline">
+  {% set steps = [
+      ('research', 'Research'),
+      ('planning', 'Planning'),
+      ('writing', 'Writing'),
+  ] %}
+  {% if job.publish_linkedin %}
+    {% set _ = steps.append(('linkedin', 'Adapting')) %}
+  {% endif %}
+  
+  {% for key, label in steps %}
+    <div class="pipeline__node {% if job.current_step == key %}pipeline__node--active{% elif not job.current_step and job.status.value != 'failed' %}pipeline__node--done{% endif %}">
+      <div class="pipeline__circle"></div>
+      <span class="pipeline__label">{{ label }}</span>
+    </div>
+    <div class="pipeline__connector"></div>
+  {% endfor %}
+  
+  <div class="pipeline__node {% if not job.current_step and job.status.value == 'pending_review' %}pipeline__node--active{% elif job.status.value in ['approved', 'publishing', 'published'] %}pipeline__node--done{% endif %}">
+    <div class="pipeline__circle"></div>
+    <span class="pipeline__label">Review/Refine</span>
+  </div>
+  <div class="pipeline__connector"></div>
+  
+  <div class="pipeline__node {% if job.status.value == 'publishing' %}pipeline__node--active{% elif job.status.value == 'published' %}pipeline__node--done{% endif %}">
+    <div class="pipeline__circle"></div>
+    <span class="pipeline__label">Publishing</span>
+  </div>
+</div>
+
+{# ── Status: Running ─────────────────────────────────────────────────────── #}
+{% if job.status.value in ['pending', 'running'] %}
+<div class="status-card status-card--running"
+     hx-get="/jobs/{{ job.id }}/status"
+     hx-trigger="every 4s"
+     hx-swap="outerHTML">
+  <div class="spinner"></div>
+  <div>
+    <p class="status-card__title">Pipeline running…</p>
+    <p class="status-card__sub">Step: {{ job.current_step or 'starting' }}</p>
+  </div>
+</div>
+{% endif %}
+
+{# ── Status: Failed ──────────────────────────────────────────────────────── #}
+{% if job.status.value == 'failed' %}
+<div class="status-card status-card--error">
+  <span class="status-icon">✕</span>
+  <div>
+    <p class="status-card__title">Pipeline failed at step: {{ job.error_step or 'unknown' }}</p>
+    <pre class="error-text">{{ job.error_message }}</pre>
+    <form action="/jobs/{{ job.id }}/retry" method="post" style="margin-top:1rem">
+      <button class="btn btn--danger">Retry Pipeline</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# ── Status: Published ───────────────────────────────────────────────────── #}
+{% if job.status.value == 'published' %}
+<div class="status-card status-card--success">
+  <span class="status-icon">✓</span>
+  <div>
+    <p class="status-card__title">Published successfully!</p>
+    {% if job.wp_post_url %}
+      <a href="{{ job.wp_post_url }}" target="_blank" class="pill-link">🌐 View WordPress Draft</a>
+    {% endif %}
+    {% if job.linkedin_post_id %}
+      <span class="pill-link">💼 LinkedIn Post ID: {{ job.linkedin_post_id }}</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Review Form ─────────────────────────────────────────────────────────── #}
+{% if job.status.value == 'pending_review' %}
+<form action="/jobs/{{ job.id }}/approve" method="post" id="review-form">
+
+    <div class="review-layout" style="display: flex; gap: 1.5rem; align-items: stretch;">
+      
+      {# Left column: Article ────────────────────────────────────── #}
+      <div class="review-main" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
+        
+        <div class="review-col">
+          <div class="section-header">
+            <h2 class="section-title">📝 Article</h2>
+            <span class="word-count" id="wc">calculating…</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Title (H1)</label>
+            <input
+              name="reviewed_title"
+              type="text"
+              class="form-input"
+              value="{{ job.reviewed_title or '' }}"
+            />
+          </div>
+
+          <div class="form-group">
+            <textarea
+              id="reviewed_markdown"
+              name="reviewed_markdown"
+              class="form-textarea form-textarea--tall"
+              oninput="updateWordCount(this)"
+            >{{ job.reviewed_markdown or '' }}</textarea>
+            <p class="form-hint">Edit directly. Markdown formatting will be converted to HTML on publish.</p>
+          </div>
+        </div>
+
+        {% if job.content_plan %}
+        <details class="detail-panel">
+          <summary>📊 Content Plan</summary>
+          <div class="plan-grid">
+            <div><strong>Focus Keyword:</strong> {{ job.content_plan.focus_keyword }}</div>
+            <div><strong>Tone:</strong> {{ job.content_plan.tone }}</div>
+            <div><strong>Audience:</strong> {{ job.content_plan.target_audience }}</div>
+            <div><strong>Word Target:</strong> {{ job.content_plan.word_count_target }}</div>
+            <div><strong>Meta Desc:</strong> {{ job.content_plan.meta_description }}</div>
+            <div><strong>Secondary KWs:</strong> {{ job.content_plan.secondary_keywords | join(', ') }}</div>
+          </div>
+        </details>
+        {% endif %}
+
+      </div>
+
+      {# Right column: LinkedIn & Chat Sidebar ────────────────────────────────────── #}
+      <div class="review-sidebar" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
+        
+        {% if job.publish_linkedin %}
+        <div class="review-col">
+          <div class="section-header">
+            <h2 class="section-title">💼 LinkedIn Post</h2>
+            <span class="char-count" id="li-cc">0 chars</span>
+          </div>
+
+          <div class="form-group">
+            <textarea
+              id="linkedin-editor"
+              name="reviewed_linkedin"
+              class="form-textarea form-textarea--tall"
+              style="min-height: 200px;"
+              oninput="updateCharCount(this)"
+            >{{ job.reviewed_linkedin or '' }}</textarea>
+            <p class="form-hint">LinkedIn sweet spot: 1,200–1,500 characters.</p>
+          </div>
+
+          {% if job.keyword_data %}
+          <details class="detail-panel">
+            <summary>🔍 Keyword Research</summary>
+            <pre class="code-pre">{{ job.keyword_data | tojson(indent=2) }}</pre>
+          </details>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="chat-box" style="flex: 1; display: flex; flex-direction: column; position: sticky; top: 80px; height: calc(100vh - 120px);">
+          <div class="chat-box__header">AI Editor Chat</div>
+          <div id="chat-messages" class="chat-box__messages" style="flex: 1; overflow-y: auto; max-height: none;">
+              {% for msg in job.chat_history %}
+                  <div class="chat-bubble chat-bubble--{{ msg.role }}">
+                      <div class="chat-bubble__content">{{ msg.content }}</div>
+                  </div>
+              {% endfor %}
+          </div>
+          <div class="chat-box__input">
+          <input type="text" name="user_prompt" id="chat_input" class="form-input" placeholder="Ask AI to modify..."
+                 hx-post="/jobs/{{ job.id }}/refine" hx-target="#chat-messages" hx-swap="outerHTML" hx-indicator="#chat-loading" hx-trigger="keyup[key=='Enter']" hx-params="user_prompt">
+          <button type="button" class="btn btn--primary" style="margin-top: 0.5rem; width: 100%; justify-content: center;"
+                  hx-post="/jobs/{{ job.id }}/refine" hx-target="#chat-messages" hx-swap="outerHTML" hx-indicator="#chat-loading" hx-params="user_prompt" hx-include="#chat_input">
+            Send 🚀
+          </button>
+          <div id="chat-loading" class="htmx-indicator spinner spinner--small" style="margin: 0.5rem auto 0; display: none;"></div>
+      </div>
+        </div>
+
+      </div>
+
+    </div> <!-- End review-layout -->
+
+  <div class="form-actions form-actions--sticky">
+    <button type="submit" formaction="/jobs/{{ job.id }}/reject" class="btn btn--ghost" onclick="return confirm('Reject this article?')">
+      ✕ Reject
+    </button>
+    <button type="submit" class="btn btn--primary btn--large">
+      ✓ Approve &amp; Publish
+    </button>
+  </div>
+</form>
+{% endif %}
+
+<script>
+  function updateWordCount(el) {
+    const words = el.value.trim().split(/\s+/).filter(Boolean).length;
+    document.getElementById('wc').textContent = words + ' words';
+  }
+  function updateCharCount(el) {
+    document.getElementById('li-cc').textContent = el.value.length + ' chars';
+  }
+  // Init on load
+  const art = document.getElementById('reviewed_markdown');
+  const li  = document.getElementById('linkedin-editor');
+  if (art) updateWordCount(art);
+  if (li)  updateCharCount(li);
+
+  document.body.addEventListener('htmx:beforeRequest', function(evt) {
+    if (evt.detail.elt.id === 'chat_input' || evt.detail.elt.hasAttribute('hx-include')) {
+      const input = document.getElementById('chat_input');
+      const msgs = document.getElementById('chat-messages');
+      if (input && input.value.trim() !== '') {
+        // Optimistic UI: append user message immediately
+        const userText = input.value.trim();
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble chat-bubble--user';
+        bubble.innerHTML = `<div class="chat-bubble__content">${userText}</div>`;
+        if (msgs) {
+          msgs.appendChild(bubble);
+          setTimeout(() => msgs.scrollTop = msgs.scrollHeight, 10);
+        }
+        // Clear input immediately so user doesn't wait
+        setTimeout(() => input.value = '', 10);
+      }
+    }
+  });
+
+  document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.elt.id === 'chat_input' || evt.detail.elt.hasAttribute('hx-include')) {
+      // scroll to bottom again after server responds
+      const msgs = document.getElementById('chat-messages');
+      if (msgs) {
+        setTimeout(() => msgs.scrollTop = msgs.scrollHeight, 50);
+      }
+    }
+  });
+</script>
+{% endblock %}

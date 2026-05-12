@@ -1,0 +1,15 @@
+<div id="chat-messages" class="chat-box__messages" style="flex: 1; overflow-y: auto; max-height: none;">
+    {% for msg in job.chat_history %}
+        <div class="chat-bubble chat-bubble--{{ msg.role }}">
+            <div class="chat-bubble__content">{{ msg.content }}</div>
+        </div>
+    {% endfor %}
+</div>
+
+<!-- OOB Swap for the markdown editor -->
+<textarea id="reviewed_markdown" name="reviewed_markdown" class="form-textarea form-textarea--tall" oninput="updateWordCount(this)" hx-swap-oob="true">{{ job.reviewed_markdown or job.article_markdown }}</textarea>
+
+{% if job.publish_linkedin %}
+<!-- OOB Swap for the linkedin editor -->
+<textarea id="linkedin-editor" name="reviewed_linkedin" class="form-textarea form-textarea--tall" oninput="updateCharCount(this)" hx-swap-oob="true">{{ job.reviewed_linkedin or job.linkedin_post }}</textarea>
+{% endif %}
