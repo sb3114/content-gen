@@ -22,7 +22,7 @@ Competitors: {scraped_summary}
 
 ## Instructions
 - Improve title (click-worthy)
-- 1 focus + 5-8 secondary keywords
+- Select 1 focus + 5-8 secondary keywords. **Prioritize "affordable" keywords**: those with the best balance of high search volume and LOW competition scores.
 - Outline (H2/H3) with intent. Use GEO: answer primary intent early, scannable hierarchy.
 - Word count: 1500-2500. Tone: expert.
 - 160-char meta desc.

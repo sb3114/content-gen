@@ -78,6 +78,21 @@ async def run_pipeline(job_id: str) -> None:
         else:
             research_data_dict = {"keyword_data": None, "scraped_content": None}
 
+        # ── Step 1.5: Viability Check (Token Optimization) ──────
+        if not is_newsletter_summary and research_data_dict["keyword_data"]:
+            volumes = research_data_dict["keyword_data"].get("volumes", {})
+            # Algorithm: if kd <= 30 and search_volume > 500: write_article()
+            # We use (competition * 100) as a proxy for Keyword Difficulty (KD)
+            is_viable = any(
+                (v.get("competition", 1.0) * 100 <= 30) and (v.get("search_volume", 0) >= 500)
+                for v in volumes.values()
+            )
+            
+            if not is_viable and not job.content_plan:
+                msg = "Token Optimization: No keywords met the threshold (KD <= 30 & Volume >= 500). Job stopped to save resources."
+                await _save(job_id, status=JobStatus.failed, error_message=msg)
+                return
+
         # ── Step 2: Planning ──────────────────────────────────────
         if not is_newsletter_summary and not job.content_plan:
             await _save(job_id, status=JobStatus.running, current_step="planning")
