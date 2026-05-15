@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Calendar — Content Engine{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<style>
+  .calendar-container {
+    background: var(--surface-1);
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    margin-top: var(--spacing-lg);
+    border: 1px solid var(--surface-2);
+  }
+  .fc-theme-standard td, .fc-theme-standard th {
+    border-color: var(--surface-2);
+  }
+  .fc .fc-toolbar-title {
+    color: var(--text-1);
+    font-size: 1.5rem;
+  }
+  .fc .fc-button-primary {
+    background-color: var(--primary);
+    border-color: var(--primary);
+  }
+  .fc .fc-button-primary:not(:disabled):active, 
+  .fc .fc-button-primary:not(:disabled).fc-button-active {
+    background-color: var(--primary-dark);
+    border-color: var(--primary-dark);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Content Calendar</h1>
+    <p class="page-subtitle">Schedule and view your upcoming publications</p>
+  </div>
+</div>
+
+<div class="calendar-container">
+  <div id="calendar"></div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('calendar');
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: 'dayGridMonth',
+      events: '/api/calendar/events',
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay'
+      },
+      editable: true,
+      eventDrop: function(info) {
+        // Handle drag and drop rescheduling
+        const jobId = info.event.id;
+        const newDate = info.event.start.toISOString();
+        
+        // Create form data
+        const formData = new FormData();
+        formData.append('scheduled_at', newDate);
+        
+        fetch(`/jobs/${jobId}/reschedule`, {
+          method: 'POST',
+          body: formData
+        }).then(response => {
+          if (!response.ok) {
+            alert("Failed to reschedule job.");
+            info.revert();
+          }
+        }).catch(err => {
+          console.error(err);
+          info.revert();
+        });
+      }
+    });
+    calendar.render();
+  });
+</script>
+{% endblock %}

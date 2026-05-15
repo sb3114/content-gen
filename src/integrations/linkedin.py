@@ -20,18 +20,12 @@ LI_USERINFO_URL = "https://api.linkedin.com/v2/userinfo"  # OpenID Connect
 
 # ── OAuth helpers ─────────────────────────────────────────────────────────────
 
-def get_auth_url(state: str) -> str:
-    """
-    Build the LinkedIn OAuth2 authorization URL.
-    Scopes:
-      openid        – required for /userinfo endpoint
-      profile       – name, photo
-      email         – email address
-      w_member_social – permission to create UGC posts
-    """
+def get_auth_url(state: str, client_id: str = None) -> str:
+    """Build the LinkedIn OAuth2 authorization URL."""
+    c_id = client_id or settings.linkedin_client_id
     params = {
         "response_type": "code",
-        "client_id": settings.linkedin_client_id,
+        "client_id": c_id,
         "redirect_uri": settings.linkedin_redirect_uri,
         "state": state,
         "scope": "openid profile email w_member_social",
@@ -39,8 +33,10 @@ def get_auth_url(state: str) -> str:
     return f"{LI_AUTH_URL}?{urlencode(params)}"
 
 
-async def exchange_code(code: str) -> dict:
+async def exchange_code(code: str, client_id: str = None, client_secret: str = None) -> dict:
     """Exchange authorization code for access token."""
+    c_id = client_id or settings.linkedin_client_id
+    c_secret = client_secret or settings.linkedin_client_secret
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             LI_TOKEN_URL,
@@ -48,8 +44,8 @@ async def exchange_code(code: str) -> dict:
                 "grant_type": "authorization_code",
                 "code": code,
                 "redirect_uri": settings.linkedin_redirect_uri,
-                "client_id": settings.linkedin_client_id,
-                "client_secret": settings.linkedin_client_secret,
+                "client_id": c_id,
+                "client_secret": c_secret,
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
@@ -137,9 +133,16 @@ class LinkedInClient:
             return {"post_id": post_id}
 
 
-def get_client() -> LinkedInClient:
-    if not settings.linkedin_access_token:
+def get_client(db_settings=None) -> LinkedInClient:
+    """Return a client using credentials from database or environment."""
+    token = None
+    if db_settings and db_settings.li_access_token:
+        token = db_settings.li_access_token
+    else:
+        token = settings.linkedin_access_token
+        
+    if not token:
         raise ValueError(
-            "LinkedIn not connected. Visit /auth/linkedin to connect."
+            "LinkedIn not connected. Please go to Settings to connect."
         )
-    return LinkedInClient(settings.linkedin_access_token)
+    return LinkedInClient(token)

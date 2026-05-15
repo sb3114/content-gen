@@ -23,6 +23,24 @@
   --radius:      10px;
   --radius-sm:   6px;
   --font:        'Inter', system-ui, sans-serif;
+
+  /* Aliases for agent UI tokens */
+  --surface-1:   var(--bg-card);
+  --surface-2:   #1e1e2e;
+  --text-1:      var(--text);
+  --text-2:      var(--text-muted);
+  --primary:     var(--accent);
+  --primary-dark: #6d28d9;
+  --primary-rgb: 124, 58, 237;
+  --bg:          #0c0c14;
+
+  --spacing-sm:  0.4rem;
+  --spacing-md:  0.75rem;
+  --spacing-lg:  1.25rem;
+  --spacing-xl:  2rem;
+  --radius-md:   var(--radius);
+  --radius-lg:   14px;
+  --shadow-sm:   0 1px 8px rgba(0,0,0,0.4);
 }
 
 /* ── Reset & base ─────────────────────────────────────────────────────────── */
@@ -86,6 +104,14 @@ a:hover { text-decoration: underline; }
   margin: 0 auto;
   padding: 2rem 1.5rem 4rem;
 }
+.main-content--flush {
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+  height: calc(100vh - 60px);
+  overflow: hidden;
+}
+.hidden { display: none !important; }
 
 /* ── Page header ──────────────────────────────────────────────────────────── */
 .page-header {
@@ -548,3 +574,37 @@ a:hover { text-decoration: underline; }
   height: 16px;
   border-width: 2px;
 }
+/* ── Accordion / Expandable sections ─────────────────────────────────────── */
+.expandable-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+.expandable-section summary {
+  padding: 1.25rem;
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255,255,255,0.02);
+  user-select: none;
+}
+.expandable-section summary::-webkit-details-marker { display: none; }
+.expandable-section summary::after {
+  content: '▼';
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  transition: transform 0.2s ease;
+}
+.expandable-section[open] summary::after { transform: rotate(180deg); }
+.expandable-section[open] { border-color: var(--accent); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+.expandable-content {
+  padding: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+.expandable-section summary:hover { background: rgba(255,255,255,0.04); }

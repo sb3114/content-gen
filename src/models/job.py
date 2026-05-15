@@ -12,6 +12,7 @@ class JobStatus(str, Enum):
     running = "running"
     pending_review = "pending_review"
     approved = "approved"
+    scheduled = "scheduled"
     publishing = "publishing"
     published = "published"
     rejected = "rejected"
@@ -30,7 +31,7 @@ class ArticleJob(SQLModel, table=True):
     current_step: Optional[str] = Field(default=None)
 
     # ── Inputs ──────────────────────────────────────────────────────────
-    topic: str
+    topic: Optional[str] = Field(default=None)
     user_titles: List[str] = Field(default=[], sa_column=Column(JSON))
     competitor_urls: List[str] = Field(default=[], sa_column=Column(JSON))
     seed_keywords: List[str] = Field(default=[], sa_column=Column(JSON))
@@ -39,6 +40,10 @@ class ArticleJob(SQLModel, table=True):
     publish_targets: List[str] = Field(default=["wordpress", "linkedin"], sa_column=Column(JSON))
     publish_wordpress: bool = Field(default=True, sa_column=Column(Boolean))
     publish_linkedin: bool = Field(default=True, sa_column=Column(Boolean))
+    publish_newsletter: bool = Field(default=False, sa_column=Column(Boolean))
+    newsletter_type: Optional[str] = Field(default="update") # 'update' or 'summary'
+    newsletter_timeframe: Optional[str] = Field(default=None) # e.g. 'week', 'month'
+    newsletter_list_ids: List[int] = Field(default=[], sa_column=Column(JSON))
     scheduled_at: Optional[datetime] = Field(default=None)
 
     # ── Research output ──────────────────────────────────────────────────
@@ -53,6 +58,9 @@ class ArticleJob(SQLModel, table=True):
         default=None, sa_column=Column(Text)
     )
     linkedin_post: Optional[str] = Field(default=None, sa_column=Column(Text))
+    newsletter_subject: Optional[str] = Field(default=None)
+    newsletter_preheader: Optional[str] = Field(default=None)
+    newsletter_html: Optional[str] = Field(default=None, sa_column=Column(Text))
 
     # ── HITL: user-edited fields ─────────────────────────────────────────
     reviewed_title: Optional[str] = Field(default=None)
@@ -60,6 +68,11 @@ class ArticleJob(SQLModel, table=True):
         default=None, sa_column=Column(Text)
     )
     reviewed_linkedin: Optional[str] = Field(
+        default=None, sa_column=Column(Text)
+    )
+    reviewed_newsletter_subject: Optional[str] = Field(default=None)
+    reviewed_newsletter_preheader: Optional[str] = Field(default=None)
+    reviewed_newsletter_html: Optional[str] = Field(
         default=None, sa_column=Column(Text)
     )
 
@@ -70,6 +83,7 @@ class ArticleJob(SQLModel, table=True):
     wp_post_url: Optional[str] = Field(default=None)
     wp_post_id: Optional[str] = Field(default=None)
     linkedin_post_id: Optional[str] = Field(default=None)
+    newsletter_campaign_id: Optional[str] = Field(default=None)
 
     # ── Error tracking ───────────────────────────────────────────────────
     error_message: Optional[str] = Field(

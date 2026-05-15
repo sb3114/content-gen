@@ -1,47 +1,196 @@
 {% extends "base.html" %}
-{% block title %}Company Context Settings{% endblock %}
+{% block title %}Settings — Content Engine{% endblock %}
+
+{% block extra_head %}
+<style>
+  .settings-container {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+  .settings-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+  }
+  .settings-section h2 {
+    font-size: 1.25rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--accent-light);
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  .status-tag {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .status-tag--ok { background: rgba(16,185,129,0.1); color: #34d399; }
+  .status-tag--missing { background: rgba(239,68,68,0.1); color: #f87171; }
+  
+  .cred-group {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1rem;
+    margin-top: 1rem;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1 class="page-title">Company Context</h1>
-  <p class="text-dim">Configure the foundational memory that the AI uses to plan, write, and refine your articles.</p>
+<div class="settings-container">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Settings</h1>
+      <p class="text-dim">Configure your brand voice and platform integrations.</p>
+    </div>
+  </div>
+
+  <form action="/settings" method="post" id="settings-form">
+    
+    <!-- ── Brand Context ────────────────────────────────────────── -->
+    <div class="settings-section">
+      <h2>✦ Brand Voice & Strategy</h2>
+      <p class="text-dim" style="margin-bottom: 1.5rem; font-size: 0.9rem;">
+        This information is summarized into a dense "System Memory" that guides the AI in all planning and writing tasks.
+      </p>
+      
+      <div class="form-group">
+        <label class="form-label">Company Description</label>
+        <textarea name="company_description" class="form-input" rows="3">{{ settings.company_description or '' }}</textarea>
+      </div>
+
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Marketing Strategy</label>
+          <textarea name="marketing_strategy" class="form-input" rows="3">{{ settings.marketing_strategy or '' }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ideal Customer Profile (ICP)</label>
+          <textarea name="icp" class="form-input" rows="3">{{ settings.icp or '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Core Pillars</label>
+          <textarea name="core_pillars" class="form-input" rows="3">{{ settings.core_pillars or '' }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tone of Voice</label>
+          <textarea name="tone_of_voice" class="form-input" rows="3">{{ settings.tone_of_voice or '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Target Audiences</label>
+        <textarea name="audiences" class="form-input" rows="2">{{ settings.audiences or '' }}</textarea>
+      </div>
+
+      {% if settings.summarized_context %}
+      <details class="detail-panel" style="margin-top: 1rem;">
+        <summary>View Summarized Context (AI Memory)</summary>
+        <div class="code-pre" style="margin-top: 0.5rem; max-height: 150px;">{{ settings.summarized_context }}</div>
+      </details>
+      {% endif %}
+    </div>
+
+    <!-- ── WordPress Integration ────────────────────────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <h2>🌐 WordPress Connection</h2>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Site URL</label>
+          <input type="url" name="wp_site_url" class="form-input" placeholder="https://yourblog.com" value="{{ settings.wp_site_url or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" name="wp_username" class="form-input" placeholder="automation_user" value="{{ settings.wp_username or '' }}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Application Password</label>
+        <input type="password" name="wp_app_password" class="form-input" placeholder="•••• •••• •••• •••• •••• ••••" value="{{ settings.wp_app_password or '' }}">
+        <p class="form-hint">Generated in WP Admin → Users → Profile → Application Passwords.</p>
+      </div>
+    </div>
+
+    <!-- ── LinkedIn Integration ─────────────────────────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="margin:0;">💼 LinkedIn OAuth</h2>
+        <a href="/auth/linkedin" class="btn btn--ghost" style="font-size:0.8rem;">Connect / Re-authorize</a>
+      </div>
+      
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Client ID</label>
+          <input type="text" name="li_client_id" class="form-input" value="{{ settings.li_client_id or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Client Secret</label>
+          <input type="password" name="li_client_secret" class="form-input" value="{{ settings.li_client_secret or '' }}">
+        </div>
+      </div>
+
+      <div class="cred-group">
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+          <span class="text-dim" style="font-size:0.8rem;">Access Token</span>
+          {% if settings.li_access_token %}
+            <span class="status-tag status-tag--ok">Active</span>
+          {% else %}
+            <span class="status-tag status-tag--missing">Missing</span>
+          {% endif %}
+        </div>
+        <input type="password" name="li_access_token" class="form-input" style="font-size:0.8rem;" value="{{ settings.li_access_token or '' }}">
+        
+        <div style="margin-top:0.75rem;">
+          <label class="form-label" style="font-size:0.8rem;">Person URN</label>
+          <input type="text" name="li_person_urn" class="form-input" style="font-size:0.8rem;" value="{{ settings.li_person_urn or '' }}" placeholder="urn:li:person:...">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Brevo Integration ────────────────────────────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <h2>📧 Brevo Newsletter</h2>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <input type="password" name="brevo_api_key" class="form-input" value="{{ settings.brevo_api_key or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">List ID</label>
+          <input type="number" name="brevo_list_id" class="form-input" placeholder="e.g. 2" value="{{ settings.brevo_list_id or '' }}">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Sender Email</label>
+          <input type="email" name="brevo_sender_email" class="form-input" placeholder="hello@yourbrand.com" value="{{ settings.brevo_sender_email or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Sender Name</label>
+          <input type="text" name="brevo_sender_name" class="form-input" placeholder="Brand Name" value="{{ settings.brevo_sender_name or '' }}">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-actions" style="margin-top: 2rem;">
+      <button type="submit" class="btn btn--primary btn--large" style="width:100%;">Save All Settings</button>
+    </div>
+
+  </form>
 </div>
-
-<form action="/settings" method="post" class="card" style="max-width: 800px; margin: 0 auto;">
-  
-  <div class="form-group">
-    <label class="form-label" for="company_description">Company Description</label>
-    <textarea name="company_description" id="company_description" class="form-input" rows="4" placeholder="What does your company do? What are your core products or services?">{{ settings.company_description or '' }}</textarea>
-  </div>
-
-  <div class="form-group">
-    <label class="form-label" for="marketing_strategy">Marketing Strategy</label>
-    <textarea name="marketing_strategy" id="marketing_strategy" class="form-input" rows="3" placeholder="What is your high-level marketing strategy or current focus?">{{ settings.marketing_strategy or '' }}</textarea>
-  </div>
-
-  <div class="form-group">
-    <label class="form-label" for="icp">Ideal Customer Profile (ICP)</label>
-    <textarea name="icp" id="icp" class="form-input" rows="3" placeholder="Who is your ideal customer? Industry, company size, roles, pain points?">{{ settings.icp or '' }}</textarea>
-  </div>
-
-  <div class="form-group">
-    <label class="form-label" for="audiences">Target Audiences</label>
-    <textarea name="audiences" id="audiences" class="form-input" rows="2" placeholder="Primary and secondary audiences (e.g. CTOs, HR Directors).">{{ settings.audiences or '' }}</textarea>
-  </div>
-
-  <div class="form-group">
-    <label class="form-label" for="core_pillars">Core Pillars / Messaging</label>
-    <textarea name="core_pillars" id="core_pillars" class="form-input" rows="3" placeholder="What are the 3-4 core pillars of your messaging?">{{ settings.core_pillars or '' }}</textarea>
-  </div>
-
-  <div class="form-group">
-    <label class="form-label" for="tone_of_voice">Tone of Voice</label>
-    <textarea name="tone_of_voice" id="tone_of_voice" class="form-input" rows="2" placeholder="e.g. Professional yet conversational, authoritative but approachable.">{{ settings.tone_of_voice or '' }}</textarea>
-  </div>
-
-  <div class="form-actions">
-    <button type="submit" class="btn btn--primary btn--large">Save Settings</button>
-  </div>
-
-</form>
 {% endblock %}

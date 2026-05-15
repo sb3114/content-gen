@@ -18,14 +18,16 @@ from src.config import settings
 WP_API = f"{settings.wordpress_site_url.rstrip('/')}/wp-json/wp/v2"
 
 
-def _auth_header() -> dict:
-    """Build the Basic Auth header from config."""
-    if not settings.wordpress_username or not settings.wordpress_app_password:
+def _auth_header(username: str = None, password: str = None) -> dict:
+    """Build the Basic Auth header."""
+    user = username or settings.wordpress_username
+    pw = password or settings.wordpress_app_password
+    
+    if not user or not pw:
         raise ValueError(
-            "WordPress credentials missing. Set WORDPRESS_USERNAME and "
-            "WORDPRESS_APP_PASSWORD in .env."
+            "WordPress credentials missing. Set them in Settings tab."
         )
-    credentials = f"{settings.wordpress_username}:{settings.wordpress_app_password}"
+    credentials = f"{user}:{pw}"
     encoded = base64.b64encode(credentials.encode()).decode()
     return {"Authorization": f"Basic {encoded}"}
 
@@ -33,9 +35,14 @@ def _auth_header() -> dict:
 # ── WordPress client ──────────────────────────────────────────────────────────
 
 class WordPressClient:
-    def __init__(self):
-        self.base = WP_API
-        self.headers = {**_auth_header(), "Content-Type": "application/json"}
+    def __init__(self, site_url: str = None, username: str = None, password: str = None):
+        self.site_url = (site_url or settings.wordpress_site_url).rstrip('/')
+        self.username = username or settings.wordpress_username
+        self.base = f"{self.site_url}/wp-json/wp/v2"
+        self.headers = {
+            **_auth_header(self.username, password),
+            "Content-Type": "application/json"
+        }
 
     async def validate_token(self) -> dict:
         """
@@ -64,8 +71,8 @@ class WordPressClient:
                 )
                 return {
                     "ok": True,
-                    "username": settings.wordpress_username,
-                    "site": settings.wordpress_site_url,
+                    "username": self.username,
+                    "site": self.site_url,
                 }
             body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             msg = body.get("message", resp.text[:200])
@@ -138,7 +145,7 @@ class WordPressClient:
                 "post_id": str(data["id"]),
                 "url": data.get("link", ""),
                 "edit_url": (
-                    f"{settings.wordpress_site_url.rstrip('/')}"
+                    f"{self.site_url}"
                     f"/wp-admin/post.php?post={data['id']}&action=edit"
                 ),
             }
@@ -171,11 +178,18 @@ class WordPressClient:
         return ids
 
 
-def get_client() -> WordPressClient:
-    """Return a client using credentials from settings."""
+def get_client(db_settings=None) -> WordPressClient:
+    """Return a client using credentials from database or environment."""
+    if db_settings and db_settings.wp_username and db_settings.wp_app_password:
+        return WordPressClient(
+            site_url=db_settings.wp_site_url,
+            username=db_settings.wp_username,
+            password=db_settings.wp_app_password
+        )
+    
+    # Fallback to env
     if not settings.wordpress_username or not settings.wordpress_app_password:
         raise ValueError(
-            "WordPress not configured. Set WORDPRESS_USERNAME and "
-            "WORDPRESS_APP_PASSWORD in .env."
+            "WordPress not configured. Please set credentials in Settings."
         )
     return WordPressClient()

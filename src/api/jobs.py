@@ -2,7 +2,7 @@
 Jobs API: create, list, get, approve, reject, publish.
 """
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -42,21 +42,59 @@ async def save_settings(
     tone_of_voice: str = Form(None),
     audiences: str = Form(None),
     company_description: str = Form(None),
+    wp_site_url: str = Form(None),
+    wp_username: str = Form(None),
+    wp_app_password: str = Form(None),
+    li_client_id: str = Form(None),
+    li_client_secret: str = Form(None),
+    li_access_token: str = Form(None),
+    li_person_urn: str = Form(None),
+    brevo_api_key: str = Form(None),
+    brevo_list_id: int = Form(None),
+    brevo_sender_email: str = Form(None),
+    brevo_sender_name: str = Form(None),
 ):
     settings_obj = await session.get(CompanySettings, 1)
     if not settings_obj:
         settings_obj = CompanySettings(id=1)
     
+    # Check if brand context changed to save tokens on summarization
+    brand_changed = (
+        settings_obj.marketing_strategy != marketing_strategy or
+        settings_obj.icp != icp or
+        settings_obj.core_pillars != core_pillars or
+        settings_obj.tone_of_voice != tone_of_voice or
+        settings_obj.audiences != audiences or
+        settings_obj.company_description != company_description
+    )
+
     settings_obj.marketing_strategy = marketing_strategy
     settings_obj.icp = icp
     settings_obj.core_pillars = core_pillars
     settings_obj.tone_of_voice = tone_of_voice
     settings_obj.audiences = audiences
     settings_obj.company_description = company_description
+
+    # Update Credentials
+    if wp_site_url: settings_obj.wp_site_url = wp_site_url
+    if wp_username: settings_obj.wp_username = wp_username
+    if wp_app_password: settings_obj.wp_app_password = wp_app_password
     
-    from src.pipeline.summarize import summarize_company_context
-    summary = await summarize_company_context(settings_obj.model_dump())
-    settings_obj.summarized_context = summary
+    if li_client_id: settings_obj.li_client_id = li_client_id
+    if li_client_secret: settings_obj.li_client_secret = li_client_secret
+    if li_access_token: settings_obj.li_access_token = li_access_token
+    if li_person_urn: settings_obj.li_person_urn = li_person_urn
+    
+    if brevo_api_key: settings_obj.brevo_api_key = brevo_api_key
+    if brevo_list_id is not None: settings_obj.brevo_list_id = brevo_list_id
+    if brevo_sender_email: settings_obj.brevo_sender_email = brevo_sender_email
+    if brevo_sender_name: settings_obj.brevo_sender_name = brevo_sender_name
+    
+    if brand_changed or not settings_obj.summarized_context:
+        from src.pipeline.summarize import summarize_company_context
+        # Optimized prompt: Pass only the raw fields, summarize handles the rest
+        summary = await summarize_company_context(settings_obj.model_dump())
+        settings_obj.summarized_context = summary
     
     session.add(settings_obj)
     await session.commit()
@@ -81,23 +119,47 @@ async def dashboard(request: Request, session: Session):
 # ── Create job ────────────────────────────────────────────────────────────────
 
 @router.get("/new", response_class=HTMLResponse)
-async def new_job_form(request: Request):
-    return templates.TemplateResponse("new_job.html", {"request": request})
+async def new_job_form(request: Request, session: Session):
+    from src.integrations.brevo import get_client as brevo_client
+    from src.models.settings import CompanySettings
+    
+    settings_obj = await session.get(CompanySettings, 1)
+    brevo_lists = []
+    if settings_obj and settings_obj.brevo_api_key:
+        try:
+            brevo = brevo_client(db_settings=settings_obj)
+            brevo_lists = await brevo.get_lists()
+        except Exception:
+            pass
+            
+    return templates.TemplateResponse("new_job.html", {"request": request, "brevo_lists": brevo_lists})
 
 
 @router.post("/jobs")
 async def create_job(
     background_tasks: BackgroundTasks,
     session: Session,
-    topic: str = Form(...),
+    topic: Optional[str] = Form(None),
     user_titles: str = Form(""),
     competitor_urls: str = Form(""),
     seed_keywords: str = Form(""),
     publish_targets: list[str] = Form(default=["wordpress", "linkedin"]),
+    newsletter_type: str = Form("update"),
+    newsletter_timeframe: Optional[str] = Form(None),
+    newsletter_list_ids: list[int] = Form(default=[]),
     scheduled_at_str: str = Form(None, alias="scheduled_at"),
 ):
     def parse_lines(text: str) -> list[str]:
         return [l.strip() for l in text.strip().splitlines() if l.strip()]
+
+    # Validation
+    is_summary_only = (len(publish_targets) == 1 and publish_targets[0] == "newsletter" and newsletter_type == "summary")
+    
+    if not topic:
+        if is_summary_only:
+            topic = f"Newsletter Summary - {datetime.utcnow().strftime('%Y-%m-%d')}"
+        else:
+            raise HTTPException(status_code=400, detail="Topic is required for this job type.")
 
     schedule_dt = None
     if scheduled_at_str:
@@ -111,9 +173,12 @@ async def create_job(
         user_titles=parse_lines(user_titles),
         competitor_urls=parse_lines(competitor_urls),
         seed_keywords=parse_lines(seed_keywords),
-        publish_targets=publish_targets,
         publish_wordpress="wordpress" in publish_targets,
         publish_linkedin="linkedin" in publish_targets,
+        publish_newsletter="newsletter" in publish_targets,
+        newsletter_type=newsletter_type,
+        newsletter_timeframe=newsletter_timeframe,
+        newsletter_list_ids=newsletter_list_ids,
         scheduled_at=schedule_dt,
     )
     session.add(job)
@@ -127,12 +192,24 @@ async def create_job(
 # ── Job detail / review ───────────────────────────────────────────────────────
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
-async def job_detail(request: Request, job_id: str, session: Session):
+async def review_page(request: Request, session: Session, job_id: str):
     job = await session.get(ArticleJob, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
+        
+    from src.integrations.brevo import get_client as brevo_client
+    from src.models.settings import CompanySettings
+    settings_obj = await session.get(CompanySettings, 1)
+    brevo_lists = []
+    if settings_obj and settings_obj.brevo_api_key:
+        try:
+            brevo = brevo_client(db_settings=settings_obj)
+            brevo_lists = await brevo.get_lists()
+        except Exception:
+            pass
+
     return templates.TemplateResponse(
-        "review.html", {"request": request, "job": job}
+        "review.html", {"request": request, "job": job, "brevo_lists": brevo_lists}
     )
 
 
@@ -157,7 +234,9 @@ async def approve_job(
     job_id: str,
     reviewed_title: str = Form(...),
     reviewed_markdown: str = Form(...),
-    reviewed_linkedin: str = Form(...),
+    reviewed_linkedin: str = Form(None),
+    reviewed_newsletter_subject: str = Form(None),
+    reviewed_newsletter_html: str = Form(None),
 ):
     job = await session.get(ArticleJob, job_id)
     if not job:
@@ -165,13 +244,44 @@ async def approve_job(
 
     job.reviewed_title = reviewed_title
     job.reviewed_markdown = reviewed_markdown
-    job.reviewed_linkedin = reviewed_linkedin
-    job.status = JobStatus.approved
+    if reviewed_linkedin: job.reviewed_linkedin = reviewed_linkedin
+    if reviewed_newsletter_subject: job.reviewed_newsletter_subject = reviewed_newsletter_subject
+    if reviewed_newsletter_html: job.reviewed_newsletter_html = reviewed_newsletter_html
+    if job.scheduled_at and job.scheduled_at > datetime.utcnow():
+        job.status = JobStatus.scheduled
+    else:
+        job.status = JobStatus.approved
+    
     job.updated_at = datetime.utcnow()
     session.add(job)
     await session.commit()
 
-    background_tasks.add_task(publish_job, job_id)
+    if job.status == JobStatus.approved:
+        background_tasks.add_task(publish_job, job_id)
+    
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+# ── Reschedule ────────────────────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/reschedule")
+async def reschedule_job(
+    session: Session,
+    job_id: str,
+    scheduled_at_str: str = Form(..., alias="scheduled_at"),
+):
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    try:
+        schedule_dt = datetime.fromisoformat(scheduled_at_str)
+        job.scheduled_at = schedule_dt
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        await session.commit()
+    except ValueError:
+        raise HTTPException(400, "Invalid datetime format")
+        
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
@@ -254,3 +364,60 @@ async def retry_job(
     await session.commit()
     background_tasks.add_task(run_pipeline, job_id)
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
+# ── Delete ────────────────────────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/delete")
+async def delete_job(session: Session, job_id: str):
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    await session.delete(job)
+    await session.commit()
+    return RedirectResponse(url="/", status_code=303)
+
+
+# ── Edit metadata ─────────────────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/edit")
+async def edit_job(
+    session: Session,
+    job_id: str,
+    publish_wordpress: bool = Form(False),
+    publish_linkedin: bool = Form(False),
+    publish_newsletter: bool = Form(False),
+    newsletter_list_ids: list[int] = Form(default=[]),
+    scheduled_at: str = Form("", alias="scheduled_at"),
+):
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        return RedirectResponse(url="/", status_code=303)
+
+    job.publish_wordpress = publish_wordpress
+    job.publish_linkedin = publish_linkedin
+    job.publish_newsletter = publish_newsletter
+    job.newsletter_list_ids = newsletter_list_ids
+
+    targets = []
+    if publish_wordpress:
+        targets.append("wordpress")
+    if publish_linkedin:
+        targets.append("linkedin")
+    if publish_newsletter:
+        targets.append("newsletter")
+    job.publish_targets = targets
+
+    if scheduled_at:
+        try:
+            job.scheduled_at = datetime.fromisoformat(scheduled_at)
+        except ValueError:
+            pass
+    else:
+        job.scheduled_at = None
+
+    job.updated_at = datetime.utcnow()
+    session.add(job)
+    await session.commit()
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+

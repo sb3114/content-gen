@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 
 class OutlineSection(BaseModel):
@@ -27,3 +27,12 @@ class LinkedInPostSchema(BaseModel):
     cta: str
     hashtags: List[str]
     full_text: str
+
+
+class NewsletterSchema(BaseModel):
+    subject: str
+    preheader: str
+    greeting: str
+    body_html: str
+    cta_text: str
+    cta_url: str = ""

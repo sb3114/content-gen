@@ -11,36 +11,24 @@ from src.schemas.content_plan import ContentPlan
 genai.configure(api_key=settings.gemini_api_key)
 
 _PROMPT = """\
-You are an expert SEO content strategist.
-Analyse the research data below and create a detailed content plan for a blog article.
+Expert SEO strategist. Create a content plan for: {topic}
 
 {company_context_section}
 
-## Topic
-{topic}
-
-## User Title Ideas
-{user_titles}
-
-## Keyword Research
-{keyword_data}
-
-## Competitor Articles (summaries)
-{scraped_summary}
+## Inputs
+User Ideas: {user_titles}
+Keywords: {keyword_data}
+Competitors: {scraped_summary}
 
 ## Instructions
-- Choose or improve the best title (must be highly relevant and click-worthy)
-- Identify focus keyword + 5-8 secondary keywords
-- Create a detailed outline (H2/H3) with intent per section
-- Structure the outline using Generative Engine Optimization (GEO) principles:
-  - Provide direct, concise answers to high-intent questions in the early sections.
-  - Plan for clear, scannable hierarchies (H2, H3).
-  - Include sections for statistics, quotes, or cited facts if available in the research.
-- Set tone (authoritative, expert, yet accessible), target audience, word count (1500-2500)
-- Write a 150-160 char meta description
-- Identify 3-5 content angles that differentiate from competitors
+- Improve title (click-worthy)
+- 1 focus + 5-8 secondary keywords
+- Outline (H2/H3) with intent. Use GEO: answer primary intent early, scannable hierarchy.
+- Word count: 1500-2500. Tone: expert.
+- 160-char meta desc.
+- 3-5 unique angles.
 
-Return valid JSON matching the ContentPlan schema.
+Return valid JSON (ContentPlan schema).
 """
 
 
@@ -50,8 +38,14 @@ def _clean_schema(schema: dict) -> dict:
     support (e.g. 'default', 'title'). Required when using Pydantic-generated
     JSON schemas with google-generativeai <= 0.8.x.
     """
-    _UNSUPPORTED = {"default", "title"}
+    _UNSUPPORTED = {"default", "title", "additionalProperties"}
     if isinstance(schema, dict):
+        # Handle 'anyOf' by taking the first non-null type
+        if "anyOf" in schema:
+            valid_options = [opt for opt in schema["anyOf"] if opt.get("type") != "null"]
+            if valid_options:
+                return _clean_schema(valid_options[0])
+            
         return {
             k: _clean_schema(v)
             for k, v in schema.items()

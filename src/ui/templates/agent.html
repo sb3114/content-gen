@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+{% block title %}Agent — Content Engine{% endblock %}
+{% block body_class %}main-content--flush{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Layout ──────────────────────────────────────── */
+  .agent-page {
+    display: flex;
+    height: calc(100vh - 64px);
+    margin: 0 calc(-1 * var(--spacing-xl));   /* bleed to edge */
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ─────────────────────────────────────── */
+  .agent-sidebar {
+    width: 260px;
+    min-width: 260px;
+    background: var(--surface-1);
+    border-right: 1px solid var(--surface-2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-top {
+    padding: 1rem;
+    border-bottom: 1px solid var(--surface-2);
+  }
+
+  .btn--new-chat {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.6rem 1rem;
+    border-radius: 999px;
+    border: 1px solid var(--surface-2);
+    background: transparent;
+    color: var(--text-1);
+    font-size: 0.9rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .btn--new-chat:hover {
+    background: var(--surface-2);
+  }
+
+  .conv-list-label {
+    padding: 1rem 1rem 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-2);
+  }
+
+  #conv-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem 0.5rem;
+    gap: 2px;
+  }
+
+  .conv-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--radius-md);
+    text-decoration: none;
+    color: var(--text-2);
+    font-size: 0.9rem;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .conv-item:hover {
+    background: var(--surface-2);
+    color: var(--text-1);
+  }
+  .conv-item--active {
+    background: var(--surface-2);
+    color: var(--primary);
+  }
+  .conv-icon { font-size: 1rem; flex-shrink: 0; }
+  .conv-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── Main chat area ──────────────────────────────── */
+  .agent-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .chat-header {
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--surface-2);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-1);
+    flex-shrink: 0;
+  }
+
+  #chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* ── Empty state ─────────────────────────────────── */
+  .welcome-state {
+    margin: auto;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    color: var(--text-2);
+  }
+  .welcome-state h2 {
+    font-size: 1.75rem;
+    color: var(--text-1);
+    font-weight: 700;
+  }
+  .welcome-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 0.5rem;
+  }
+  .chip {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--surface-2);
+    border-radius: 999px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    background: var(--surface-1);
+    color: var(--text-1);
+    transition: background 0.15s;
+  }
+  .chip:hover { background: var(--surface-2); }
+
+  /* ── Messages ────────────────────────────────────── */
+  .msg {
+    display: flex;
+    gap: 0.75rem;
+    max-width: 820px;
+    width: 100%;
+  }
+  .msg--user {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+  }
+  .msg--model {
+    align-self: flex-start;
+  }
+
+  .msg__avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), #a78bfa);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .msg__bubble {
+    padding: 0.75rem 1.1rem;
+    border-radius: 1.25rem;
+    line-height: 1.6;
+    font-size: 0.95rem;
+  }
+  .msg--user .msg__bubble {
+    background: var(--primary);
+    color: white;
+    border-bottom-right-radius: 4px;
+  }
+  .msg--model .msg__bubble {
+    background: var(--surface-1);
+    color: var(--text-1);
+    border-bottom-left-radius: 4px;
+    border: 1px solid var(--surface-2);
+  }
+  .msg--model .msg__bubble p { margin: 0 0 0.5rem; }
+  .msg--model .msg__bubble p:last-child { margin-bottom: 0; }
+  .msg--model .msg__bubble code {
+    background: var(--surface-2);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+
+  /* ── Typing indicator ────────────────────────────── */
+  .typing-dots {
+    display: none;
+    align-self: flex-start;
+    gap: 0.75rem;
+    max-width: 820px;
+  }
+  .typing-dots.visible { display: flex; }
+  .dots { display: flex; gap: 4px; align-items: center; padding: 0.75rem 1.1rem; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--primary);
+    animation: bounce 1.2s infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+    40% { transform: translateY(-6px); opacity: 1; }
+  }
+
+  /* ── Input bar ───────────────────────────────────── */
+  .chat-input-area {
+    flex-shrink: 0;
+    padding: 1rem 2rem 1.5rem;
+    background: var(--bg);
+  }
+
+  .input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    background: var(--surface-1);
+    border: 1px solid var(--surface-2);
+    border-radius: 1.5rem;
+    padding: 0.5rem 0.5rem 0.5rem 1.25rem;
+    transition: border-color 0.2s;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+  .input-wrapper:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 99, 102, 241), 0.12);
+  }
+
+  #chat-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text-1);
+    font-size: 0.95rem;
+    resize: none;
+    max-height: 160px;
+    overflow-y: auto;
+    line-height: 1.5;
+    padding: 0.3rem 0;
+  }
+
+  .btn--send {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .btn--send:hover { opacity: 0.88; transform: scale(1.05); }
+  .btn--send:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn--send svg { width: 18px; height: 18px; }
+
+  .input-hint {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-2);
+    margin-top: 0.5rem;
+  }
+
+  /* Hide htmx spinner class by default */
+  .htmx-indicator { display: none !important; }
+  .htmx-request .htmx-indicator { display: flex !important; }
+</style>
+<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+{% endblock %}
+
+{% block content %}
+<div class="agent-page">
+
+  <!-- ── Sidebar ──────────────────────────────────── -->
+  <aside class="agent-sidebar">
+    <div class="sidebar-top">
+      <a href="/chat" class="btn--new-chat">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        New chat
+      </a>
+    </div>
+
+    {% if conversations %}
+    <div class="conv-list-label">Recent</div>
+    {% endif %}
+
+    <div id="conv-list">
+      {% for conv in conversations %}
+      <a href="/chat?id={{ conv.id }}"
+         class="conv-item {% if active_conversation and active_conversation.id == conv.id %}conv-item--active{% endif %}"
+         id="conv-{{ conv.id }}">
+        <span class="conv-icon">💬</span>
+        <span class="conv-title">{{ conv.title }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <!-- ── Main Area ─────────────────────────────────── -->
+  <main class="agent-main">
+    <div class="chat-header">
+      {% if active_conversation %}
+        {{ active_conversation.title }}
+      {% else %}
+        Content Engine Agent
+      {% endif %}
+    </div>
+
+    <div id="chat-messages">
+      {% if not messages %}
+        <div class="welcome-state" id="welcome-msg">
+          <div style="font-size:3rem">✦</div>
+          <h2>What can I help with?</h2>
+          <p>Create bulk content jobs, check your schedule, or plan a campaign.</p>
+          <div class="welcome-chips">
+            <div class="chip" onclick="fillInput('Create 5 LinkedIn posts about fintech trends this month')">📋 Bulk LinkedIn posts</div>
+            <div class="chip" onclick="fillInput('Schedule 4 blog articles for bondnow.net over the next 2 weeks')">📅 Schedule blogs</div>
+            <div class="chip" onclick="fillInput('What jobs are coming up this week?')">🔍 Upcoming jobs</div>
+          </div>
+        </div>
+      {% else %}
+        {% for msg in messages %}
+          <div class="msg msg--{{ msg.role }}">
+            {% if msg.role == 'model' %}
+              <div class="msg__avatar">AI</div>
+            {% endif %}
+            <div class="msg__bubble">
+              {% if msg.role == 'model' %}
+                {{ msg.content | safe }}
+              {% else %}
+                {{ msg.content }}
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <!-- Typing indicator (htmx shows it during request) -->
+      <div class="typing-dots htmx-indicator" id="typing-indicator" aria-label="Agent is thinking">
+        <div class="msg__avatar">AI</div>
+        <div class="msg__bubble">
+          <div class="dots">
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Input Bar ───────────────────────────────── -->
+    <div class="chat-input-area">
+      <form id="chat-form"
+            hx-post="/chat/message"
+            hx-target="#chat-messages"
+            hx-swap="beforeend"
+            hx-indicator="#typing-indicator">
+
+        <input type="hidden" name="conversation_id" id="active-conv-id"
+               value="{{ active_conversation.id if active_conversation else '' }}">
+
+        <div class="input-wrapper">
+          <textarea
+            id="chat-input"
+            name="message"
+            rows="1"
+            placeholder="Ask me anything about your content…"
+            required
+            autocomplete="off"
+            oninput="autoResize(this)"
+            onkeydown="handleKey(event)"
+          ></textarea>
+
+          <button type="submit" class="btn--send" id="send-btn" title="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+            </svg>
+          </button>
+        </div>
+        <p class="input-hint">Press Enter to send · Shift+Enter for new line</p>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script>
+  // Auto-resize textarea
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  }
+
+  // Enter to submit, Shift+Enter for newline
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById('chat-form').requestSubmit();
+    }
+  }
+
+  // Fill input from a chip click
+  function fillInput(text) {
+    const el = document.getElementById('chat-input');
+    el.value = text;
+    el.focus();
+    autoResize(el);
+  }
+
+  // Clear input and remove welcome state after sending
+  const form = document.getElementById('chat-form');
+  form.addEventListener('htmx:beforeRequest', () => {
+    const welcome = document.getElementById('welcome-msg');
+    if (welcome) welcome.remove();
+  });
+
+  form.addEventListener('htmx:afterRequest', () => {
+    const input = document.getElementById('chat-input');
+    input.value = '';
+    input.style.height = 'auto';
+    scrollToBottom();
+  });
+
+  // Auto-scroll
+  function scrollToBottom() {
+    const msgs = document.getElementById('chat-messages');
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  const observer = new MutationObserver(scrollToBottom);
+  observer.observe(document.getElementById('chat-messages'), { childList: true, subtree: true });
+  scrollToBottom();
+</script>
+{% endblock %}

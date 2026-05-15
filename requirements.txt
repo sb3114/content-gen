@@ -10,7 +10,7 @@ alembic==1.15.2
 
 # Gemini
 google-generativeai==0.8.4
-
+google-genai==0.2.2
 # Keyword research
 pytrends==4.9.2
 httpx==0.28.1
@@ -26,3 +26,6 @@ python-slugify==8.0.4
 pydantic-settings==2.9.1
 python-dotenv==1.1.0
 itsdangerous==2.2.0
+
+# Scheduling
+apscheduler==3.10.4

@@ -12,78 +12,133 @@
 <div class="form-card">
   <form action="/jobs" method="post">
     
-    <div class="section-header">
-      <h2 class="section-title">Step 1 — Content</h2>
-    </div>
+<div class="form-container">
+  <form action="/jobs" method="post">
+    
+    <!-- SECTION 1: CONTENT -->
+    <details class="expandable-section" open>
+      <summary>Content Details</summary>
+      <div class="expandable-content">
+        <div class="form-group">
+          <label for="topic" class="form-label">Article Topic / Newsletter Subject</label>
+          <input
+            id="topic" name="topic" type="text"
+            class="form-input"
+            placeholder="e.g. How to implement zero-trust security for remote teams"
+          />
+          <p class="form-hint">Required for Blog/LinkedIn posts. Leave blank for Newsletter Summary (will use default subject).</p>
+        </div>
 
-    <div class="form-group">
-      <label for="topic" class="form-label">Article Topic <span class="required">*</span></label>
-      <input
-        id="topic" name="topic" type="text" required
-        class="form-input"
-        placeholder="e.g. How to implement zero-trust security for remote teams"
-      />
-      <p class="form-hint">Be specific — this is the seed for the entire pipeline.</p>
-    </div>
+        <div class="form-group">
+          <label for="seed_keywords" class="form-label">Seed Keywords</label>
+          <textarea
+            id="seed_keywords" name="seed_keywords"
+            class="form-textarea" rows="3"
+            placeholder="zero trust security&#10;remote work security&#10;network access control"
+          ></textarea>
+          <p class="form-hint">One keyword per line. Used for pytrends + DataForSEO research.</p>
+        </div>
 
-    <div class="form-group">
-      <label for="seed_keywords" class="form-label">Seed Keywords</label>
-      <textarea
-        id="seed_keywords" name="seed_keywords"
-        class="form-textarea" rows="3"
-        placeholder="zero trust security&#10;remote work security&#10;network access control"
-      ></textarea>
-      <p class="form-hint">One keyword per line. Used for pytrends + DataForSEO research.</p>
-    </div>
+        <div class="form-group">
+          <label for="user_titles" class="form-label">Your Title Ideas</label>
+          <textarea
+            id="user_titles" name="user_titles"
+            class="form-textarea" rows="3"
+            placeholder="The Complete Guide to Zero Trust Security in 2025&#10;Why Zero Trust is the Future of Remote Work Security"
+          ></textarea>
+          <p class="form-hint">One title per line. Gemini will choose or improve on these.</p>
+        </div>
 
-    <div class="form-group">
-      <label for="user_titles" class="form-label">Your Title Ideas</label>
-      <textarea
-        id="user_titles" name="user_titles"
-        class="form-textarea" rows="3"
-        placeholder="The Complete Guide to Zero Trust Security in 2025&#10;Why Zero Trust is the Future of Remote Work Security"
-      ></textarea>
-      <p class="form-hint">One title per line. Gemini will choose or improve on these.</p>
-    </div>
-
-    <div class="form-group">
-      <label for="competitor_urls" class="form-label">Competitor URLs to Analyse</label>
-      <textarea
-        id="competitor_urls" name="competitor_urls"
-        class="form-textarea" rows="4"
-        placeholder="https://competitor.com/blog/zero-trust-guide&#10;https://anotherblog.com/remote-security"
-      ></textarea>
-      <p class="form-hint">One URL per line. Content will be scraped and summarised.</p>
-    </div>
-
-    <div class="section-header" style="margin-top: 2rem;">
-      <h2 class="section-title">Step 2 — Publishing Targets</h2>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Where should this be published?</label>
-      <div style="display: flex; gap: 1rem;">
-        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
-          <input type="checkbox" name="publish_targets" value="wordpress" checked />
-          <span>🌐 WordPress Blog</span>
-        </label>
-        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
-          <input type="checkbox" name="publish_targets" value="linkedin" checked />
-          <span>💼 LinkedIn Post</span>
-        </label>
+        <div class="form-group">
+          <label for="competitor_urls" class="form-label">Competitor URLs to Analyse</label>
+          <textarea
+            id="competitor_urls" name="competitor_urls"
+            class="form-textarea" rows="4"
+            placeholder="https://competitor.com/blog/zero-trust-guide&#10;https://anotherblog.com/remote-security"
+          ></textarea>
+          <p class="form-hint">One URL per line. Content will be scraped and analysed.</p>
+        </div>
       </div>
-    </div>
+    </details>
 
-    <div class="section-header" style="margin-top: 2rem;">
-      <h2 class="section-title">Step 3 — Schedule</h2>
-    </div>
-    <div class="form-group">
-      <label for="scheduled_at" class="form-label">Scheduled Publish Time (Optional)</label>
-      <input
-        id="scheduled_at" name="scheduled_at" type="datetime-local"
-        class="form-input"
-      />
-      <p class="form-hint">Leave blank to publish immediately after your manual approval.</p>
-    </div>
+    <!-- SECTION 2: TARGETS -->
+    <details class="expandable-section">
+      <summary>Publishing Targets</summary>
+      <div class="expandable-content">
+        <div class="form-group">
+          <label class="form-label">Where should this be published?</label>
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
+              <input type="checkbox" name="publish_targets" value="wordpress" checked />
+              <span>🌐 WordPress Blog</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
+              <input type="checkbox" name="publish_targets" value="linkedin" checked />
+              <span>💼 LinkedIn Post</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
+              <input type="checkbox" name="publish_targets" value="newsletter" onchange="document.getElementById('newsletter-options').style.display = this.checked ? 'block' : 'none'" />
+              <span>📧 Newsletter (Brevo)</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="newsletter-options" style="display: none; background: rgba(var(--primary-rgb), 0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border); margin-top: 1rem;">
+          <h3 style="font-size: 0.95rem; margin-bottom: 1rem; color: var(--primary);">Newsletter Configuration</h3>
+          <div class="form-group">
+            <label class="form-label">Newsletter Content Type</label>
+            <div style="display: flex; gap: 1rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="radio" name="newsletter_type" value="update" checked onchange="document.getElementById('timeframe-group').style.display = 'none'" />
+                <span>News Update (Based on this topic)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="radio" name="newsletter_type" value="summary" onchange="document.getElementById('timeframe-group').style.display = 'block'" />
+                <span>Published Summary</span>
+              </label>
+            </div>
+          </div>
+          <div class="form-group" id="timeframe-group" style="display: none;">
+            <label class="form-label" for="newsletter_timeframe">Summary Period</label>
+            <select name="newsletter_timeframe" id="newsletter_timeframe" class="form-input">
+              <option value="week">Past Week</option>
+              <option value="month">Past Month</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Send to Lists</label>
+            {% if brevo_lists %}
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; background: var(--surface-1); padding: 1rem; border-radius: 8px;">
+                {% for list in brevo_lists %}
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                    <input type="checkbox" name="newsletter_list_ids" value="{{ list.id }}" />
+                    <span>{{ list.name }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="form-hint" style="color: var(--danger);">No Brevo lists found. Check your API key in Settings.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- SECTION 3: SCHEDULE -->
+    <details class="expandable-section">
+      <summary>Schedule</summary>
+      <div class="expandable-content">
+        <div class="form-group">
+          <label for="scheduled_at" class="form-label">Scheduled Publish Time (Optional)</label>
+          <input
+            id="scheduled_at" name="scheduled_at" type="datetime-local"
+            class="form-input"
+          />
+          <p class="form-hint">Leave blank to publish immediately after your manual approval.</p>
+        </div>
+      </div>
+    </details>
 
     <div class="form-actions">
       <a href="/" class="btn btn--ghost">Cancel</a>

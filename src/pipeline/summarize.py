@@ -8,21 +8,13 @@ from src.config import settings
 genai.configure(api_key=settings.gemini_api_key)
 
 _PROMPT = """\
-You are an expert AI Assistant configurer.
-Your task is to take the raw company settings below and compress them into a dense, 
-highly-optimized context string to be used as a System Prompt Memory.
+Compress these company settings into a dense, bulleted "System Memory" string.
+Remove fluff. Keep core messaging, ICP, tone, and strategy. 
 
-## Raw Company Settings
+## Settings
 {settings_json}
 
-## Instructions
-- Extract all core messaging, ICP definition, tone of voice, and strategies.
-- Remove redundant words or fluff.
-- Structure it as bullet points or brief paragraphs.
-- Ensure no critical strategic detail or target audience is lost.
-- This will be injected into future prompts to guide the AI's writing. Make it clear and authoritative.
-
-Return ONLY the summarized context string. Do not wrap in markdown code blocks.
+Return ONLY the compressed text. No markdown.
 """
 
 async def summarize_company_context(settings_dict: dict) -> str:
@@ -43,3 +35,27 @@ async def summarize_company_context(settings_dict: dict) -> str:
 
     response = await model.generate_content_async(prompt)
     return response.text.strip()
+
+
+async def get_published_memory() -> str:
+    """Fetch history of published articles for cross-linking."""
+    from src.database import AsyncSessionLocal
+    from src.models.job import ArticleJob, JobStatus
+    from sqlmodel import select
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(ArticleJob).where(ArticleJob.status == JobStatus.published)
+        jobs = (await session.exec(stmt)).all()
+        
+    if not jobs:
+        return ""
+        
+    memory = "\n## Published Article History (Use for Cross-linking & SEO)\n"
+    for j in jobs:
+        title = j.reviewed_title or j.topic
+        if j.publish_wordpress and j.wp_post_url:
+            memory += f"- Title: {title} | Target: WordPress | URL: {j.wp_post_url}\n"
+        elif j.publish_linkedin:
+            memory += f"- Title: {title} | Target: LinkedIn\n"
+            
+    return memory

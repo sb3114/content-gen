@@ -20,7 +20,55 @@
       {% endif %}
     </div>
   </div>
-  <a href="/" class="btn btn--ghost">← Dashboard</a>
+  <div style="display:flex; gap:0.5rem; align-items:center;">
+    <button onclick="document.getElementById('edit-panel').classList.toggle('hidden')" class="btn btn--ghost" type="button" title="Edit job settings">⚙ Edit</button>
+    <a href="/" class="btn btn--ghost">← Dashboard</a>
+    <form action="/jobs/{{ job.id }}/delete" method="post" onsubmit="return confirm('Permanently delete this job?')">
+      <button type="submit" class="btn btn--danger" title="Delete job">🗑 Delete</button>
+    </form>
+  </div>
+</div>
+
+{# ── Edit Panel ───────────────────────────────────────────────────────────── #}
+<div id="edit-panel" class="hidden" style="margin-bottom: 1.5rem;">
+  <form action="/jobs/{{ job.id }}/edit" method="post" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-end;">
+    <div>
+      <label class="form-label">📅 Scheduled Date/Time</label>
+      <input type="datetime-local" name="scheduled_at" class="form-input"
+        value="{{ job.scheduled_at.strftime('%Y-%m-%dT%H:%M') if job.scheduled_at else '' }}">
+      <p class="form-hint">Leave blank to run immediately.</p>
+    </div>
+    <div>
+      <label class="form-label">Publish Targets</label>
+      <div style="display:flex;gap:1rem;margin-top:0.4rem;">
+        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;">
+          <input type="checkbox" name="publish_wordpress" value="true" {% if job.publish_wordpress %}checked{% endif %}> 🌐 WordPress
+        </label>
+        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;">
+          <input type="checkbox" name="publish_linkedin" value="true" {% if job.publish_linkedin %}checked{% endif %}> 💼 LinkedIn
+        </label>
+        <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;">
+          <input type="checkbox" name="publish_newsletter" value="true" {% if job.publish_newsletter %}checked{% endif %}> 📧 Newsletter
+        </label>
+      </div>
+    </div>
+    {% if job.publish_newsletter and brevo_lists %}
+    <div style="width: 100%; margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);">
+      <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.5rem; display: block;">Newsletter Target Lists</label>
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        {% for list in brevo_lists %}
+          <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer;">
+            <input type="checkbox" name="newsletter_list_ids" value="{{ list.id }}" 
+              {% if list.id in (job.newsletter_list_ids or []) %}checked{% endif %}>
+            {{ list.name }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <button type="submit" class="btn btn--primary">Save Changes</button>
+    <button type="button" class="btn btn--ghost" onclick="document.getElementById('edit-panel').classList.add('hidden')">Cancel</button>
+  </form>
 </div>
 
 {# ── Pipeline Diagram ────────────────────────────────────────────────────── #}
@@ -31,7 +79,10 @@
       ('writing', 'Writing'),
   ] %}
   {% if job.publish_linkedin %}
-    {% set _ = steps.append(('linkedin', 'Adapting')) %}
+    {% set _ = steps.append(('linkedin', 'Adapting LI')) %}
+  {% endif %}
+  {% if job.publish_newsletter %}
+    {% set _ = steps.append(('newsletter', 'Email Design')) %}
   {% endif %}
   
   {% for key, label in steps %}
@@ -153,6 +204,36 @@
       {# Right column: LinkedIn & Chat Sidebar ────────────────────────────────────── #}
       <div class="review-sidebar" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
         
+        {% if job.publish_newsletter %}
+        <div class="review-col">
+          <div class="section-header">
+            <h2 class="section-title">📧 Email Newsletter</h2>
+            <span class="badge">{{ job.newsletter_type }}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Email Subject</label>
+            <input
+              name="reviewed_newsletter_subject"
+              type="text"
+              class="form-input"
+              value="{{ job.reviewed_newsletter_subject or job.newsletter_subject or '' }}"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Email Content (HTML)</label>
+            <textarea
+              id="newsletter-editor"
+              name="reviewed_newsletter_html"
+              class="form-textarea form-textarea--tall"
+              style="min-height: 300px; font-family: monospace; font-size: 0.85rem;"
+            >{{ job.reviewed_newsletter_html or job.newsletter_html or '' }}</textarea>
+            <p class="form-hint">HTML content for Brevo campaign. Basic tags are recommended.</p>
+          </div>
+        </div>
+        {% endif %}
+
         {% if job.publish_linkedin %}
         <div class="review-col">
           <div class="section-header">
@@ -170,13 +251,6 @@
             >{{ job.reviewed_linkedin or '' }}</textarea>
             <p class="form-hint">LinkedIn sweet spot: 1,200–1,500 characters.</p>
           </div>
-
-          {% if job.keyword_data %}
-          <details class="detail-panel">
-            <summary>🔍 Keyword Research</summary>
-            <pre class="code-pre">{{ job.keyword_data | tojson(indent=2) }}</pre>
-          </details>
-          {% endif %}
         </div>
         {% endif %}
 

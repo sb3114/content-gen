@@ -29,11 +29,15 @@ _states: dict[str, str] = {}
 @router.get("/wordpress/validate")
 async def wp_validate() -> dict:
     """
-    Live check: attempt to create+delete a test draft using stored credentials.
-    Returns JSON {ok, username, site} or {ok: false, error: ...}.
+    Live check: attempt to create+delete a test draft.
     """
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
     try:
-        client = wp_integration.get_client()
+        async with AsyncSessionLocal() as session:
+            db_settings = await session.get(CompanySettings, 1)
+            
+        client = wp_integration.get_client(db_settings=db_settings)
         info = await client.validate_token()
         return info
     except Exception as exc:
@@ -43,11 +47,18 @@ async def wp_validate() -> dict:
 # ── LinkedIn OAuth 2.0 ────────────────────────────────────────────────────────
 
 @router.get("/linkedin")
-async def li_connect():
+async def li_connect(request: Request):
     """Redirect browser to LinkedIn consent page."""
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
+    
+    async with AsyncSessionLocal() as session:
+        db_settings = await session.get(CompanySettings, 1)
+        client_id = db_settings.li_client_id if db_settings else None
+
     state = secrets.token_urlsafe(16)
     _states[state] = "linkedin"
-    url = li_integration.get_auth_url(state)
+    url = li_integration.get_auth_url(state, client_id=client_id)
     return RedirectResponse(url)
 
 
@@ -68,14 +79,15 @@ async def li_callback(
     del _states[state]
 
     # Exchange authorization code for access token
-    token_data = await li_integration.exchange_code(code)
-    access_token = token_data.get("access_token", "")
-    expires_in = token_data.get("expires_in", 5183944)  # ~60 days default
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
+    async with AsyncSessionLocal() as session:
+        db_settings = await session.get(CompanySettings, 1)
+        c_id = db_settings.li_client_id if db_settings else None
+        c_secret = db_settings.li_client_secret if db_settings else None
 
-    person_urn = ""
-    name = ""
-    email = ""
-    issued_at = datetime.now(timezone.utc).isoformat()
+    token_data = await li_integration.exchange_code(code, client_id=c_id, client_secret=c_secret)
+    access_token = token_data.get("access_token", "")
 
     if access_token:
         # Fetch profile via OpenID Connect /userinfo
@@ -84,50 +96,37 @@ async def li_callback(
             profile = await client.get_profile()
             sub = profile.get("sub", "")
             person_urn = f"urn:li:person:{sub}"
-            name = profile.get("name", "")
-            email = profile.get("email", "")
+            
+            # Persist to database
+            from src.database import AsyncSessionLocal
+            from src.models.settings import CompanySettings
+            async with AsyncSessionLocal() as session:
+                db_settings = await session.get(CompanySettings, 1)
+                if not db_settings:
+                    db_settings = CompanySettings(id=1)
+                db_settings.li_access_token = access_token
+                db_settings.li_person_urn = person_urn
+                session.add(db_settings)
+                await session.commit()
         except Exception as exc:
-            name = f"(profile fetch failed: {exc})"
+            print(f"Profile fetch or DB save failed: {exc}")
 
-    days = expires_in // 86400
-
-    # Tokens are NOT written to any file — display them for the user to
-    # add to their ~/content-engine-secrets.sh and re-inject on restart.
-    return HTMLResponse(f"""
-    <html><head><title>LinkedIn Connected</title></head>
-    <body style="font-family:monospace;padding:2rem;background:#0f0f17;color:#e2e8f0">
-    <h2 style="color:#4ade80">&#x2705; LinkedIn Connected!</h2>
-    <p><strong>Name:</strong> {name}</p>
-    <p><strong>Email:</strong> {email}</p>
-    <p><strong>Person URN:</strong> <code>{person_urn}</code></p>
-    <p style="color:#94a3b8">Token expires in ~{days} days.</p>
-    <hr style="border-color:#2d2d44;margin:1.5rem 0">
-    <h3 style="color:#fbbf24">&#x26A0;&#xFE0F; Add these to your secrets file and restart</h3>
-    <p style="color:#94a3b8;font-size:0.85rem">
-      Edit <code>~/content-engine-secrets.sh</code>, update these three lines,
-      then re-source and restart the container:
-    </p>
-    <pre style="background:#1e1e2e;padding:1rem;border-radius:8px;color:#4ade80;user-select:all">
-export LINKEDIN_ACCESS_TOKEN={access_token}
-export LINKEDIN_PERSON_URN={person_urn}
-export LINKEDIN_TOKEN_ISSUED_AT={issued_at}</pre>
-    <p style="color:#94a3b8;font-size:0.8rem">
-      Then restart:<br>
-      <code>source ~/content-engine-secrets.sh &amp;&amp; docker compose up -d --force-recreate app</code>
-    </p>
-    <a href="/auth/validate" style="color:#a78bfa">&#x2190; Back to token status</a>
-    </body></html>
-    """)
+    # Redirect to settings page instead of showing raw tokens
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @router.get("/linkedin/validate")
 async def li_validate() -> dict:
     """
     Live check: call /userinfo with stored token.
-    Returns JSON {ok, name, email, urn, days_remaining} or {ok: false, error: ...}.
     """
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
     try:
-        client = li_integration.get_client()
+        async with AsyncSessionLocal() as session:
+            db_settings = await session.get(CompanySettings, 1)
+        
+        client = li_integration.get_client(db_settings=db_settings)
         info = await client.validate_token()
         return info
     except Exception as exc:

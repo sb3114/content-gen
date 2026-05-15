@@ -9,40 +9,27 @@ from src.schemas.content_plan import ContentPlan
 genai.configure(api_key=settings.gemini_api_key)
 
 _PROMPT = """\
-You are an expert blog writer and SEO specialist.
-Write a comprehensive, engaging article based on the content plan below.
+Expert blog writer. Write an article from the plan below.
 
 {company_context_section}
 
-## Title (H1 — do NOT include in body)
-{title}
+## Specs
+Title: {title}
+SEO: {focus_keyword}, {secondary_keywords}
+Tone: {tone} | Count: {word_count}
 
-## SEO
-Focus keyword: {focus_keyword}
-Secondary keywords: {secondary_keywords}
-Meta description: {meta_description}
-Target audience: {target_audience}
-Tone: {tone}
-Word count target: {word_count} words
+## Plan
+Outline: {outline}
+Angles: {angles}
 
-## Outline
-{outline}
+## Rules (GEO)
+- Start with first H2 (No H1). 
+- Answer intent directly in first paragraphs.
+- Short paragraphs (2-4 sentences). 
+- Scannable (bolding, lists).
+- Expert tone. Clean Markdown.
 
-## Unique Content Angles
-{angles}
-
-## Rules (Generative Engine Optimization - GEO)
-- Start with the first H2 (never repeat the H1)
-- Answer the user's primary intent directly and concisely in the first few paragraphs.
-- Use short paragraphs (2-4 sentences max) for high readability.
-- Integrate keywords naturally — no stuffing. Use semantic variations.
-- Use formatting (bolding key terms, bulleted lists) to make content highly scannable.
-- Maintain an authoritative, expert tone. Cite specific facts or statistics if they were provided in the outline.
-- End with a strong conclusion and CTA
-- No placeholder text like [INSERT STAT] — write real content
-- Format in clean Markdown (H2, H3, **bold**, bullet lists)
-
-Return ONLY the article body in Markdown, starting from the first H2.
+Return Markdown body ONLY.
 """
 
 

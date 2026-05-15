@@ -4,7 +4,10 @@ from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.config import settings
+# Import all models so their metadata is registered for create_all
 from src.models.settings import CompanySettings
+from src.models.job import ArticleJob  # noqa: F401
+from src.models.chat import AgentConversation, AgentMessage  # noqa: F401
 
 engine = create_async_engine(
     settings.database_url,

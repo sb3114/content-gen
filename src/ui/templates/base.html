@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css?v=2" />
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <nav class="navbar">
@@ -17,14 +18,14 @@
     </a>
     <div class="nav-links">
       <a href="/" class="nav-link">Dashboard</a>
+      <a href="/calendar" class="nav-link">Calendar</a>
+      <a href="/chat" class="nav-link">Agent</a>
       <a href="/new" class="nav-btn">+ New Job</a>
       <a href="/settings" class="nav-link nav-link--dim">⚙️ Settings</a>
-      <a href="/auth/wordpress" class="nav-link nav-link--dim">Connect WP</a>
-      <a href="/auth/linkedin" class="nav-link nav-link--dim">Connect LI</a>
     </div>
   </nav>
 
-  <main class="main-content">
+  <main class="main-content {% block body_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
 </body>
