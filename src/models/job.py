@@ -8,9 +8,12 @@ from sqlmodel import SQLModel, Field
 
 
 class JobStatus(str, Enum):
-    pending = "pending"
+    queued = "queued"               # waiting in line behind other jobs
+    pending = "pending"             # legacy / direct-start (treated same as queued)
     running = "running"
-    pending_review = "pending_review"
+    resuming = "resuming"           # keyword confirmed; about to restart writing
+    pending_review = "pending_review"  # keyword gate (current_step=keyword_confirmation)
+                                       # OR content review gate (current_step=None)
     approved = "approved"
     scheduled = "scheduled"
     publishing = "publishing"
@@ -36,6 +39,10 @@ class ArticleJob(SQLModel, table=True):
     competitor_urls: List[str] = Field(default=[], sa_column=Column(JSON))
     seed_keywords: List[str] = Field(default=[], sa_column=Column(JSON))
 
+    # ── Queue & workflow control ─────────────────────────────────────────
+    queue_position: Optional[int] = Field(default=None)   # 1 = next to run
+    auto_approve: bool = Field(default=False, sa_column=Column(Boolean))  # skip all review gates
+
     # ── Workflow Settings ───────────────────────────────────────────────
     publish_targets: List[str] = Field(default=["wordpress", "linkedin"], sa_column=Column(JSON))
     publish_wordpress: bool = Field(default=True, sa_column=Column(Boolean))
@@ -51,6 +58,10 @@ class ArticleJob(SQLModel, table=True):
     scraped_content: Optional[List[dict]] = Field(
         default=None, sa_column=Column(JSON)
     )
+    # Keyword gate: SERP format + candidate snapshot shown to user for confirmation
+    keyword_review_data: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # Keyword the user confirmed (may differ from AI-chosen keyword)
+    confirmed_keyword: Optional[str] = Field(default=None)
 
     # ── Generated content ────────────────────────────────────────────────
     content_plan: Optional[dict] = Field(default=None, sa_column=Column(JSON))

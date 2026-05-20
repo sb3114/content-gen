@@ -27,7 +27,7 @@ Competitors: {scraped_summary}
 - Word count: 1500-2500. Tone: expert.
 - 160-char meta desc.
 - 3-5 unique angles.
-
+{serp_format_section}
 Return valid JSON (ContentPlan schema).
 """
 
@@ -80,6 +80,8 @@ async def run_planning(
     keyword_data: dict,
     scraped_content: list[dict],
     company_context: str = "",
+    focus_keyword: str = "",
+    serp_format: str = "",
 ) -> tuple[ContentPlan, dict]:
     # Compress competitor content (save tokens)
     summaries = []
@@ -98,13 +100,22 @@ async def run_planning(
     if company_context and company_context.strip():
         ctx_section = f"## Company Context (Base Your Plan On This)\n{company_context}\n"
 
+    # SERP format injection
+    serp_section = ""
+    if serp_format:
+        serp_section = f"\nCRITICAL FORMAT REQUIREMENT: Google is currently ranking **{serp_format}** posts for this keyword. Structure the outline to match this format.\n"
+
     prompt = _PROMPT.format(
         company_context_section=ctx_section,
         topic=topic,
         user_titles="\n".join(f"- {t}" for t in user_titles) or "None",
         keyword_data=json.dumps(keyword_data, indent=2),
         scraped_summary=json.dumps(summaries, indent=2),
+        serp_format_section=serp_section,
     )
+
+    if focus_keyword:
+        prompt += f"\n\nCRITICAL SEO REQUIREMENT:\nYou MUST use '{focus_keyword}' exactly as the 'focus_keyword' field in the returned JSON. Base the article outline, angles, and title on ranking for this focus keyword."
 
     model = genai.GenerativeModel(
         settings.gemini_planning_model,

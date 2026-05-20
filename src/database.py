@@ -32,3 +32,33 @@ async def get_session():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+        # Ensure new columns exist on pre-existing database tables
+        from sqlalchemy import text
+
+        # Existing columns (already shipped)
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS dataforseo_login VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS dataforseo_password VARCHAR;"))
+
+        # Sequential queue + keyword gate (this release)
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS queue_position INTEGER;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS confirmed_keyword VARCHAR;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS keyword_review_data JSON;"))
+
+        # WordPress on-page SEO author fields
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS wp_author_id INTEGER;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS wp_author_name VARCHAR;"))
+
+    try:
+        # Alter ENUM types outside transaction blocks (PostgreSQL requires this)
+        async with engine.connect() as conn:
+            conn_auto = await conn.execution_options(isolation_level="AUTOCOMMIT")
+            await conn_auto.execute(
+                text("ALTER TYPE jobstatus ADD VALUE IF NOT EXISTS 'queued';")
+            )
+            await conn_auto.execute(
+                text("ALTER TYPE jobstatus ADD VALUE IF NOT EXISTS 'resuming';")
+            )
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to add enum values (might already exist): {e}")

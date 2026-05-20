@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # DataForSEO
     dataforseo_login: Optional[str] = None
     dataforseo_password: Optional[str] = None
+    dataforseo_location_code: int = 2826  # UK (2826) by default to target UK/EU
+    dataforseo_language_name: str = "English"
+    dataforseo_language_code: str = "en"
 
     # WordPress (self-hosted, Application Passwords)
     wordpress_site_url: str = "https://bondnow.net"  # no trailing slash

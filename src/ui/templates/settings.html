@@ -124,6 +124,18 @@
         <input type="password" name="wp_app_password" class="form-input" placeholder="•••• •••• •••• •••• •••• ••••" value="{{ settings.wp_app_password or '' }}">
         <p class="form-hint">Generated in WP Admin → Users → Profile → Application Passwords.</p>
       </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Author ID <span style="font-size:0.75rem; color:var(--text-muted);">(Numeric WP User ID)</span></label>
+          <input type="number" name="wp_author_id" class="form-input" placeholder="e.g. 1" value="{{ settings.wp_author_id or '' }}">
+          <p class="form-hint">Find in WP Admin → Users → hover username → ID visible in URL.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Author Name <span style="font-size:0.75rem; color:var(--text-muted);">(For Article Schema)</span></label>
+          <input type="text" name="wp_author_name" class="form-input" placeholder="e.g. Jane Smith" value="{{ settings.wp_author_name or '' }}">
+          <p class="form-hint">Displayed in the JSON-LD Article schema on each published post.</p>
+        </div>
+      </div>
     </div>
 
     <!-- ── LinkedIn Integration ─────────────────────────────────── -->
@@ -187,10 +199,83 @@
       </div>
     </div>
 
+    <!-- ── DataForSEO Integration ───────────────────────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <h2 style="margin:0;">🔍 DataForSEO Connection</h2>
+        <button type="button" id="btn-test-dfs" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span id="dfs-btn-text">Test Connection</span>
+        </button>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">API Login / Email</label>
+          <input type="text" name="dataforseo_login" id="dataforseo_login" class="form-input" placeholder="e.g. user@brand.com" value="{{ settings.dataforseo_login or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Password / Token</label>
+          <input type="password" name="dataforseo_password" id="dataforseo_password" class="form-input" placeholder="••••••••••••••••" value="{{ settings.dataforseo_password or '' }}">
+        </div>
+      </div>
+      <p class="form-hint" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Required to fetch live Google search volume and competition metrics.</p>
+
+      <!-- Connection Status Display -->
+      <div id="dfs-status-box" style="margin-top: 1rem; display: none; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.85rem; font-family: 'Inter', sans-serif;">
+      </div>
+    </div>
+
     <div class="form-actions" style="margin-top: 2rem;">
       <button type="submit" class="btn btn--primary btn--large" style="width:100%;">Save All Settings</button>
     </div>
 
   </form>
 </div>
+
+<script>
+document.getElementById('btn-test-dfs').addEventListener('click', async () => {
+  const btnText = document.getElementById('dfs-btn-text');
+  const statusBox = document.getElementById('dfs-status-box');
+  
+  btnText.textContent = 'Testing connection...';
+  statusBox.style.display = 'block';
+  statusBox.style.borderColor = 'var(--border)';
+  statusBox.style.backgroundColor = 'rgba(0,0,0,0.2)';
+  statusBox.style.color = 'var(--text-dim)';
+  statusBox.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-dim); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; vertical-align:middle;"></span>Checking credentials against DataForSEO API...';
+  
+  try {
+    const response = await fetch('/auth/dataforseo/validate');
+    const data = await response.json();
+    
+    if (data.ok) {
+      statusBox.style.color = '#34d399';
+      statusBox.style.borderColor = 'rgba(52,211,153,0.3)';
+      statusBox.style.backgroundColor = 'rgba(52,211,153,0.05)';
+      statusBox.innerHTML = `
+        <div style="font-weight:600; margin-bottom:0.25rem;">✅ Connection Successful!</div>
+        <div style="font-size:0.8rem; opacity:0.9;">
+          <strong>Account Login:</strong> ${data.login}<br>
+          <strong>Account Balance:</strong> $${Number(data.balance).toFixed(2)} USD<br>
+          <strong>Total Deposited:</strong> $${Number(data.total).toFixed(2)} USD
+        </div>
+      `;
+    } else {
+      throw new Error(data.error || 'Connection failed.');
+    }
+  } catch (error) {
+    statusBox.style.color = '#f87171';
+    statusBox.style.borderColor = 'rgba(248,113,113,0.3)';
+    statusBox.style.backgroundColor = 'rgba(248,113,113,0.05)';
+    statusBox.innerHTML = `
+      <div style="font-weight:600; margin-bottom:0.25rem;">❌ Connection Failed</div>
+      <div style="font-size:0.8rem; opacity:0.9;">${error.message}</div>
+    `;
+  } finally {
+    btnText.textContent = 'Test Connection';
+  }
+});
+</script>
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
 {% endblock %}

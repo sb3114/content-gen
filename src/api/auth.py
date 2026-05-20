@@ -133,6 +133,25 @@ async def li_validate() -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+@router.get("/dataforseo/validate")
+async def dfs_validate() -> dict:
+    """
+    Live check: call appendix/user_data with stored credentials.
+    """
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
+    from src.integrations.keywords import KeywordResearcher
+    try:
+        async with AsyncSessionLocal() as session:
+            db_settings = await session.get(CompanySettings, 1)
+        
+        researcher = KeywordResearcher()
+        info = await researcher.validate_connection(db_settings=db_settings)
+        return info
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 # ── Combined status page ──────────────────────────────────────────────────────
 
 @router.get("/validate", response_class=HTMLResponse)

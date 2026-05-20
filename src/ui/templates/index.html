@@ -160,8 +160,17 @@
   {% for job in jobs %}
   <div class="job-card" onclick="if(!event.target.closest('form') && !event.target.closest('.link-chip')) window.location='/jobs/{{ job.id }}'">
     <div class="job-card__header">
-      <div style="display:flex; align-items:center; gap:0.5rem;">
+      <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap: wrap;">
         <span class="badge badge--{{ job.status.value }}">{{ job.status.value.replace('_', ' ') }}</span>
+        {% if job.status.value in ['queued', 'pending'] and job.queue_position %}
+          <span class="badge" style="background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); font-size: 0.7rem;">#{{ job.queue_position }} in queue</span>
+        {% endif %}
+        {% if job.current_step == 'keyword_confirmation' %}
+          <span class="badge" style="background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); font-size: 0.7rem;">🔑 Keyword Review</span>
+        {% endif %}
+        {% if job.auto_approve %}
+          <span class="badge" style="background: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.25); font-size: 0.7rem;">⚡ Auto</span>
+        {% endif %}
         <span class="job-card__date">{{ job.created_at.strftime('%b %d, %H:%M') }}</span>
       </div>
       <form action="/jobs/{{ job.id }}/delete" method="post" onsubmit="return confirm('Permanently delete this job?')" style="margin: 0;">
@@ -184,6 +193,9 @@
       {% endif %}
       {% if job.scheduled_at %}
         <span class="tag" title="Scheduled Time">⏱️ {{ job.scheduled_at.strftime('%m/%d %H:%M') }}</span>
+      {% endif %}
+      {% if job.keyword_data and job.keyword_data.chosen_keyword %}
+        <span class="tag" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);" title="SEO Focus Keyword Discovered">🔑 {{ job.keyword_data.chosen_keyword.keyword }}</span>
       {% endif %}
       {% if job.current_step %}
         <span class="tag tag--active">⟳ {{ job.current_step }}</span>

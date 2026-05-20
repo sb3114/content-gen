@@ -1,0 +1,160 @@
+{# Rendered when job.status == "pending_review" and job.current_step == "keyword_confirmation" #}
+{% set krd = job.keyword_review_data or {} %}
+{% set chosen = krd.get("chosen_keyword", {}) %}
+{% set candidates = krd.get("candidates", []) %}
+{% set serp_format = krd.get("serp_format", "guide") %}
+{% set serp_confidence = krd.get("serp_confidence", "low") %}
+{% set serp_examples = krd.get("serp_examples", []) %}
+
+<style>
+  .kw-gate { display: flex; flex-direction: column; gap: 1.5rem; max-width: 860px; margin: 0 auto; }
+  .kw-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; }
+  .kw-card-title { font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin-bottom: 1rem; }
+  .serp-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1.25rem; border-radius: 999px; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+  .badge-guide    { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); }
+  .badge-list     { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+  .badge-comparison { background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+  .badge-how-to   { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+  .badge-tool     { background: rgba(236,72,153,0.12); color: #f472b6; border: 1px solid rgba(236,72,153,0.3); }
+  .badge-other    { background: rgba(107,114,128,0.12); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+  .kw-chosen-kw { font-size: 1.6rem; font-weight: 800; color: var(--text); letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+  .kw-metrics { display: flex; gap: 1.25rem; flex-wrap: wrap; margin: 0.75rem 0; }
+  .kw-metric { background: var(--surface-2, rgba(0,0,0,0.2)); padding: 0.4rem 0.9rem; border-radius: 8px; font-size: 0.8rem; }
+  .kw-metric-label { color: var(--text-muted); margin-right: 0.35rem; }
+  .kw-metric-val { font-weight: 700; color: var(--text); }
+  .kw-rationale { font-size: 0.875rem; color: var(--text-dim); line-height: 1.6; margin-top: 0.75rem; padding: 0.75rem 1rem; background: rgba(0,0,0,0.15); border-radius: 8px; border-left: 3px solid var(--primary); }
+  .kw-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .kw-table th { text-align: left; color: var(--text-muted); font-weight: 600; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .kw-table td { padding: 0.6rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .kw-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .kd-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
+  .kd-easy   { background: rgba(16,185,129,0.15); color: #34d399; }
+  .kd-medium { background: rgba(245,158,11,0.15); color: #fbbf24; }
+  .kd-hard   { background: rgba(239,68,68,0.15);  color: #f87171; }
+  .trend-up   { color: #34d399; }
+  .trend-flat { color: #9ca3af; }
+  .trend-down { color: #f87171; }
+  .confirm-form { display: flex; flex-direction: column; gap: 1rem; }
+  .confirm-input-row { display: flex; gap: 0.75rem; align-items: center; }
+  .confirm-input { flex: 1; }
+  .serp-examples { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.75rem; }
+  .serp-example { font-size: 0.82rem; color: var(--text-dim); padding: 0.3rem 0.75rem; background: rgba(0,0,0,0.15); border-radius: 6px; }
+</style>
+
+<div class="kw-gate">
+
+  <!-- SERP FORMAT CARD -->
+  <div class="kw-card">
+    <div class="kw-card-title">🔍 SERP Format Detected</div>
+    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+      <span class="serp-badge badge-{{ serp_format }}">{{ serp_format | upper }}</span>
+      <span style="font-size: 0.85rem; color: var(--text-dim);">
+        Google is ranking <strong>{{ serp_format }}</strong> posts for this keyword
+        (confidence: {{ serp_confidence }})
+      </span>
+    </div>
+    {% if serp_examples %}
+    <div class="serp-examples" style="margin-top: 1rem;">
+      <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">TOP RANKING EXAMPLES</div>
+      {% for ex in serp_examples %}
+        <div class="serp-example">📄 {{ ex }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.75rem;">
+      The content outline will be structured to match this format. You can override the keyword below if needed.
+    </p>
+  </div>
+
+  <!-- AI CHOSEN KEYWORD CARD -->
+  <div class="kw-card" style="border-color: rgba(var(--primary-rgb), 0.35);">
+    <div class="kw-card-title">🏆 AI-Selected Golden Ratio Keyword</div>
+    <div class="kw-chosen-kw">{{ chosen.get("keyword", "—") }}</div>
+    <div class="kw-metrics">
+      <div class="kw-metric">
+        <span class="kw-metric-label">Monthly Volume</span>
+        <span class="kw-metric-val">{{ "{:,}".format(chosen.get("search_volume", 0)) }}</span>
+      </div>
+      <div class="kw-metric">
+        <span class="kw-metric-label">Keyword Difficulty</span>
+        <span class="kw-metric-val">{{ chosen.get("keyword_difficulty", "—") }}</span>
+      </div>
+      {% if chosen.get("trend_slope") is not none %}
+      <div class="kw-metric">
+        <span class="kw-metric-label">90d Trend</span>
+        <span class="kw-metric-val {% if chosen.trend_slope > 0 %}trend-up{% elif chosen.trend_slope < -0.5 %}trend-down{% else %}trend-flat{% endif %}">
+          {% if chosen.get("trend_slope", 0) > 0 %}▲{% elif chosen.get("trend_slope", 0) < -0.5 %}▼{% else %}→{% endif %}
+          {{ "%.3f" | format(chosen.get("trend_slope", 0)) }}
+        </span>
+      </div>
+      {% endif %}
+    </div>
+    {% if chosen.get("rationale") %}
+    <div class="kw-rationale">{{ chosen.rationale }}</div>
+    {% endif %}
+  </div>
+
+  <!-- CANDIDATES TABLE -->
+  {% if candidates %}
+  <div class="kw-card">
+    <div class="kw-card-title">📊 Other Surviving Candidates</div>
+    <table class="kw-table">
+      <thead>
+        <tr>
+          <th>Keyword</th>
+          <th>Volume</th>
+          <th>KD</th>
+          <th>Trend</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for kw in candidates %}
+        {% set kd = kw.get("keyword_difficulty", 100) %}
+        <tr>
+          <td style="font-weight: 500; color: var(--text);">{{ kw.keyword }}</td>
+          <td>{{ "{:,}".format(kw.get("search_volume", 0)) }}</td>
+          <td>
+            <span class="kd-badge {% if kd <= 15 %}kd-easy{% elif kd <= 35 %}kd-medium{% else %}kd-hard{% endif %}">
+              {{ kd }}
+            </span>
+          </td>
+          <td>
+            {% set slope = kw.get("trend_slope", 0) %}
+            <span class="{% if slope > 0 %}trend-up{% elif slope < -0.5 %}trend-down{% else %}trend-flat{% endif %}">
+              {% if slope > 0 %}▲{% elif slope < -0.5 %}▼{% else %}→{% endif %}
+              {{ "%.2f" | format(slope) }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- CONFIRM FORM -->
+  <div class="kw-card" style="border-color: rgba(16,185,129,0.3);">
+    <div class="kw-card-title">✏️ Confirm or Override Keyword</div>
+    <p style="font-size: 0.875rem; color: var(--text-dim); margin-bottom: 1.25rem;">
+      The field is pre-filled with the AI-selected keyword. Edit it to use a different phrase, then click <strong>Confirm &amp; Start Writing</strong>.
+    </p>
+    <form action="/jobs/{{ job.id }}/confirm-keyword" method="post" class="confirm-form">
+      <div class="confirm-input-row">
+        <input
+          type="text"
+          name="confirmed_keyword"
+          id="confirmed_keyword"
+          class="form-input confirm-input"
+          value="{{ chosen.get('keyword', '') }}"
+          placeholder="Enter keyword to target..."
+          required
+        />
+        <button type="submit" class="btn btn--primary" style="white-space: nowrap; gap: 0.5rem;">
+          ✅ Confirm &amp; Start Writing
+        </button>
+      </div>
+      <p class="form-hint">The confirmed keyword will be used as the SEO focus keyword for the article outline, title, and meta description.</p>
+    </form>
+  </div>
+
+</div>

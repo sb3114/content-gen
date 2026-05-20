@@ -19,6 +19,8 @@ class CompanySettings(SQLModel, table=True):
     wp_site_url: Optional[str] = Field(default=None)
     wp_username: Optional[str] = Field(default=None)
     wp_app_password: Optional[str] = Field(default=None)
+    wp_author_id: Optional[int] = Field(default=None)    # numeric WP user ID for published posts
+    wp_author_name: Optional[str] = Field(default=None)  # display name for Article schema markup
 
     # LinkedIn Credentials
     li_client_id: Optional[str] = Field(default=None)
@@ -32,3 +34,8 @@ class CompanySettings(SQLModel, table=True):
     brevo_list_id: Optional[int] = Field(default=None)
     brevo_sender_email: Optional[str] = Field(default=None)
     brevo_sender_name: Optional[str] = Field(default=None)
+
+    # DataForSEO Credentials
+    dataforseo_login: Optional[str] = Field(default=None)
+    dataforseo_password: Optional[str] = Field(default=None)
+

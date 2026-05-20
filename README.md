@@ -21,46 +21,62 @@ The application is structured as a modular asynchronous API:
 *   **`src/database.py`**: PostgreSQL database connection and session management using `asyncpg`.
 *   **`src/ui/`**: Frontend components, including `static` assets (CSS/JS) and `templates`.
 
-## 🔍 Keyword Research Integration
+## 🔍 Advanced 5-Stage SEO Research & Discovery Pipeline
 
-The system includes a sophisticated Keyword Researcher (`src/integrations/keywords.py`) that automates the discovery of search intent and competition data. 
+The system contains an automated, touchless **5-Stage SEO Discovery and Trend Verification Pipeline** (`src/integrations/keywords.py`) designed to identify high-potential, brand-aligned, and low-competition "Golden Ratio" keywords in the target market.
 
-### How it works:
-When a new job is started, the engine performs the following in parallel:
+### 🌐 Dynamic Geography & Language Targeting
+By default, all keyword metrics, competitor discoveries, and long-tail ideas are dynamically configured in [config.py](file:///home/shirish/Documents/development/content-creator/content-creator/src/config.py) to target specific local markets:
+- **Default Target**: **United Kingdom (UK)** (Location Code: `2826`, Language: `en`).
+- Fully customizable to prioritize localized search volumes and intent rather than generic international data.
 
-1.  **Google Trends (pytrends)**:
-    *   Fetches **Interest Over Time** (last 12 months) for your seed keywords.
-    *   Extracts **Related Queries** (Top 20) to expand topical coverage and find niche "hooks."
-2.  **Search Metrics (DataForSEO)**:
-    *   *Optional*: Activated if DataForSEO credentials are provided in Settings.
-    *   Fetches real-time **Search Volume**, **Competition levels**, and **CPC** (Cost Per Click).
-    *   Targeting: **United States (English)** by default.
+---
 
-### Benefits:
-- **Asynchronous Execution**: Both research tasks run simultaneously via `asyncio`, minimizing the "cold start" time for new jobs.
-- **Data-Driven Writing**: This researched data (volumes + related queries) is injected directly into the Gemini Planning prompt.
+### 🚀 How the 5-Stage Pipeline Works:
 
-### 💰 Keyword Selection & "Affordability"
+#### 1️⃣ Stage 1: Competitor Discovery & Niche Filtering
+- Takes your initial topic string and queries the **DataForSEO Google Organic Live SERP API** (`v3/serp/google/organic/live/advanced`).
+- Extracts root domains of the top 3 ranking organic sites.
+- **Niche Competitor Domain Filter**: Programmatically filters out giant generic authorities (like `amazon.com`, `nytimes.com`, `wikipedia.org`, `nih.gov`, `youtube.com`) to isolate **highly specialized niche blogs, local platforms, and domain competitors** (e.g. `smartcaregiver.com`, `agespace.org`), keeping our source keywords highly relevant.
 
-A common question is how the system chooses "affordable" keywords (those with high potential but low competition). 
+#### 2️⃣ Stage 2: Competitor Keyword Scrape & Brand Cleanse
+- Queries the **DataForSEO Ranked Keywords API** (`v3/dataforseo_labs/google/ranked_keywords/live`) for each discovered competitor.
+- Restricts scraping to high-performing pages (positions 1-5).
+- **Brand Cleanse & Noise Scrubbing**: Programmatically strips out phrases containing competitor names (e.g., if scraping `aplaceformom.com`, brand phrases like `"a place for mom senior advisors"` are omitted).
+- **Clinical & Character Filter**: Scrubs out decimal coordinates, drug/clinical percent codes, decimals, and special character strings (e.g. `"0.9 sodium chloride"`, `"027/nap1/bi"`) that cause DataForSEO validation errors and system crashes.
 
-**How it is done today:**
-1.  **Metric Fetching**: The `KeywordResearcher` retrieves the `competition` index from DataForSEO (a value from 0 to 1.0, where 1.0 is highest competition).
-2.  **Context Injection**: This raw data—`Keyword`, `Search Volume`, and `Competition`—is passed in its entirety to the **Gemini Planning Agent**.
-3.  **AI Decision Making**: The Gemini prompt explicitly defines the model as an **"Expert SEO strategist."** Gemini uses its internal reasoning to balance high search volume against low competition scores to select the `focus_keyword` and `secondary_keywords`.
+#### 3️⃣ Stage 3: Keyword Universe Expansion (Granular Long-Tails)
+- Aggregates the remaining competitor terms and slices them to the top 30 candidates.
+- Queries the **DataForSEO Keyword Ideas API** (`v3/dataforseo_labs/google/keyword_ideas/live`) to generate highly granular long-tail variations.
+- **Single POST Call Optimization**: Submits candidate seeds in a single nested batch request to keep processing highly cost-effective and hyper-fast.
 
-*Note: There is currently no hard-coded "filter" (e.g., skip all keywords > 0.5 competition). The selection is dynamic and based on the AI's topical understanding.*
+#### 4️⃣ Stage 4: Metric Sorting & Trajectory Trend Verification
+- Filters the master long-tail list using strict bounds: **Keyword Difficulty (KD) <= 35** and **Search Volume >= 300**.
+- Integrates parallel **Google Trends (pytrends)** batch lookups (groups of 5) to calculate a **90-day trajectory slope** of interest over time using linear regression.
+- Discards declining trends (`slope < -0.5`), keeping only growing or stable queries.
 
-### 🛡️ Token Optimization Algorithm
+#### 5️⃣ Stage 5: AI Brand-Relevance Filter & Sequential Scheduling
+- Passes surviving candidates to Gemini along with **BondNow's brand description, ICPs, and core marketing pillars** loaded dynamically from settings.
+- Gemini acts as our **AI Chief SEO Strategist**, analyzing search intent against company values, discarding off-topic candidate queries, and choosing the single best **"Golden Ratio" Focus Keyword**.
+- Queries the calendar state via `get_next_open_slot` to determine the latest scheduled post, and schedules the new job sequentially at **9:00 AM** on the next available open day.
 
-To maximize ROI and prevent wasting expensive AI tokens on topics that are too competitive or have low search intent, the system enforces a strict **Viability Guardrail** after the research phase:
+---
 
-**The Rule:**
-> *If no keyword exists where **KD <= 30** AND **Search Volume >= 500**, the article generation is aborted.*
+### ✏️ Post-Schedule Editing & Target Recalculation
 
-- **KD Mapping**: Since DataForSEO's `competition` index is 0.0–1.0, we use `competition * 100` as a proxy for Keyword Difficulty (KD).
-- **Automation**: If the threshold is not met, the job status is automatically set to `failed` with a clear message, saving you from spending tokens on the Planning and Writing phases for a non-viable topic.
-- **Exemptions**: This check is automatically bypassed for **Newsletter Summaries**, as they are based on existing content rather than SEO targeting.
+Even after a task is approved or scheduled, you retain full editorial control over your content:
+- **Interactive Editing**: The article title, body, LinkedIn draft, and newsletter fields remain fully editable, featuring a persistent `💾 Save Content Changes` button.
+- **Target-based Recalculation Pipeline**: Modifying publish targets in the top Edit Panel dynamically recalculates assets:
+  - **Added Targets**: Checking a new publish target (e.g., checking LinkedIn or Newsletter) spawns an **asynchronous LLM adaptation background task** to immediately generate high-quality tailored drafts based on the active article content.
+  - **Removed Targets**: Unchecking a publish target instantly cleanses and purges its draft content from the database.
+
+---
+
+### 📊 Integrated SEO Stats & Metrics Dashboard (UI/UX)
+All live SEO metrics are persistently available across all states (Scheduled, Published, Approved) in a premium collapsable details panel:
+- **Focus Golden Ratio Keyword Banner**: Highlighted in beautiful neon HSL gradients with UK targeting indicators, monthly volume metrics, trend trajectory graphs, and the complete AI Chief Strategist Rationale.
+- **Discovered Competitors**: Links directly to the organic sources we scraped.
+- **Top Candidates Table**: Custom-styled rows displaying candidates that survived threshold bounds with color-coded difficulty badges.
 
 ## 🚀 How to Start the App
 

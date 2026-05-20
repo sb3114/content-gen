@@ -9,6 +9,9 @@ Authentication: HTTP Basic Auth
               → Application Passwords  (spaces in the password are fine)
 """
 import base64
+import re
+import unicodedata
+from datetime import date
 
 import httpx
 
@@ -16,6 +19,13 @@ from src.config import settings
 
 # Self-hosted REST API base
 WP_API = f"{settings.wordpress_site_url.rstrip('/')}/wp-json/wp/v2"
+
+
+def _keyword_to_slug(text: str) -> str:
+    """Convert a keyword or title to a clean URL slug (no dates, no IDs)."""
+    slug = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^\w\s-]", "", slug).strip().lower()
+    return re.sub(r"[\s_-]+", "-", slug)
 
 
 def _auth_header(username: str = None, password: str = None) -> dict:
@@ -106,20 +116,42 @@ class WordPressClient:
         meta_description: str,
         tags: list[str],
         category_ids: list[int] | None = None,
+        author_id: int | None = None,
+        author_name: str = "",
     ) -> dict:
         """
         Create a post with status=draft on the self-hosted WP site.
 
         SEO fields (Yoast / RankMath) are written via the `meta` key.
+        Article JSON-LD schema is prepended to the post body.
         Returns {post_id, url, edit_url}.
         """
         # Resolve tag names → IDs (create if missing)
         tag_ids = await self._resolve_tags(tags)
 
+        # Build slug from focus keyword (clean, readable, no dates)
+        slug = _keyword_to_slug(focus_keyword or title)
+
+        # Build Article JSON-LD schema block
+        today_iso = date.today().isoformat()
+        safe_title = title.replace('"', '\\"')
+        safe_desc = meta_description.replace('"', '\\"')
+        safe_author = author_name.replace('"', '\\"')
+        schema_json = (
+            f'{{"@context":"https://schema.org","@type":"Article",'  
+            f'"headline":"{safe_title}",'  
+            f'"author":{{"@type":"Person","name":"{safe_author}"}},'  
+            f'"datePublished":"{today_iso}","dateModified":"{today_iso}",'  
+            f'"description":"{safe_desc}"}}'
+        )
+        schema_block = f'<script type="application/ld+json">{schema_json}</script>\n'
+        full_content = schema_block + html_content
+
         payload: dict = {
             "title": title,
-            "content": html_content,
+            "content": full_content,
             "status": "draft",
+            "slug": slug,
             "tags": tag_ids,
             "meta": {
                 # Yoast SEO fields
@@ -132,6 +164,8 @@ class WordPressClient:
         }
         if category_ids:
             payload["categories"] = category_ids
+        if author_id:
+            payload["author"] = author_id
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(

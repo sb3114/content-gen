@@ -26,82 +26,203 @@ async def _save(job_id: str, **kwargs):
             await session.commit()
 
 
+# ── Phase 1: Research → Keyword Gate ─────────────────────────────────────────
+
 async def run_pipeline(job_id: str) -> None:
-    """Full async pipeline: Research → Plan → Write → Adapt. Supports resuming."""
+    """
+    Phase 1 of 2: Research → Keyword Gate.
+
+    Runs the 5-stage SEO pipeline, scrapes competitor pages, detects SERP
+    format, and then either:
+      - Pauses at pending_review (step=keyword_confirmation) for user to confirm the keyword, OR
+      - Immediately calls resume_pipeline() if auto_approve=True (fully touchless).
+
+    Supports resuming from a partial state (e.g. after a crash).
+    """
     try:
         async with AsyncSessionLocal() as session:
             job = await session.get(ArticleJob, job_id)
             if not job:
                 return
-            
+
             topic = job.topic
             user_titles = job.user_titles
             competitor_urls = job.competitor_urls
             seed_keywords = job.seed_keywords
             publish_linkedin = job.publish_linkedin
             publish_newsletter = job.publish_newsletter
-            
+            auto_approve = job.auto_approve
+
             # Initialize tokens from current job state (in case of resume)
             input_tokens = job.input_tokens_used or 0
             output_tokens = job.output_tokens_used or 0
-            
+
             # Fetch company context
             settings_obj = await session.get(CompanySettings, 1)
             company_context = settings_obj.summarized_context if settings_obj else ""
-            
+
             # Fetch Published Memory (Cross-linking context)
             from src.pipeline.summarize import get_published_memory
             published_memory = await get_published_memory()
             full_context = company_context + "\n" + published_memory
 
-        # ── Step 0: Decision Logic ────────────────────────────────
+        # ── Decision: newsletter summary bypasses keyword gate ────────────────
         is_newsletter_summary = (job.newsletter_type == "summary" and publish_newsletter)
-        
-        # ── Step 1: Research ──────────────────────────────────────
+
+        # ── Step 1: Research ──────────────────────────────────────────────────
         if not is_newsletter_summary and (not job.keyword_data or not job.scraped_content):
             await _save(job_id, status=JobStatus.running, current_step="research")
             research_data = await run_research(
-                topic, seed_keywords, competitor_urls
+                topic, seed_keywords, competitor_urls, db_settings=settings_obj
             )
+
+            # Calculate next open slot sequentially if a golden ratio keyword was chosen
+            kw_data = research_data.get("keyword_data", {})
+            scheduled_dt = job.scheduled_at
+            seed_kws = job.seed_keywords
+
+            if kw_data and kw_data.get("chosen_keyword"):
+                chosen_kw_dict = kw_data["chosen_keyword"]
+                chosen_kw = chosen_kw_dict.get("keyword")
+                if chosen_kw:
+                    seed_kws = [chosen_kw]
+
+                if not scheduled_dt:
+                    from src.pipeline.scheduling import get_next_open_slot
+                    async with AsyncSessionLocal() as session:
+                        scheduled_dt = await get_next_open_slot(session)
+
             await _save(
                 job_id,
                 current_step="planning",
                 keyword_data=research_data["keyword_data"],
                 scraped_content=research_data["scraped_content"],
+                keyword_review_data=research_data.get("keyword_review_data"),
+                scheduled_at=scheduled_dt,
+                seed_keywords=seed_kws,
             )
             research_data_dict = research_data
         elif not is_newsletter_summary:
             research_data_dict = {
                 "keyword_data": job.keyword_data,
-                "scraped_content": job.scraped_content
+                "scraped_content": job.scraped_content,
+                "keyword_review_data": job.keyword_review_data,
             }
         else:
-            research_data_dict = {"keyword_data": None, "scraped_content": None}
+            research_data_dict = {"keyword_data": None, "scraped_content": None, "keyword_review_data": None}
 
-        # ── Step 1.5: Viability Check (Token Optimization) ──────
+        # ── Step 1.5: Viability Check (Token Optimization) ───────────────────
         if not is_newsletter_summary and research_data_dict["keyword_data"]:
-            volumes = research_data_dict["keyword_data"].get("volumes", {})
-            # Algorithm: if kd <= 30 and search_volume > 500: write_article()
-            # We use (competition * 100) as a proxy for Keyword Difficulty (KD)
-            is_viable = any(
-                (v.get("competition", 1.0) * 100 <= 30) and (v.get("search_volume", 0) >= 500)
-                for v in volumes.values()
-            )
-            
+            if research_data_dict["keyword_data"].get("ok") and research_data_dict["keyword_data"].get("chosen_keyword"):
+                is_viable = True
+            else:
+                volumes = research_data_dict["keyword_data"].get("volumes", {})
+                is_viable = any(
+                    (v.get("competition", 1.0) * 100 <= 30) and (v.get("search_volume", 0) >= 500)
+                    for v in volumes.values()
+                )
+
             if not is_viable and not job.content_plan:
-                msg = "Token Optimization: No keywords met the threshold (KD <= 30 & Volume >= 500). Job stopped to save resources."
+                msg = "Token Optimization: No keywords met the threshold (KD <= 35 & Volume >= 300). Job stopped to save resources."
                 await _save(job_id, status=JobStatus.failed, error_message=msg)
                 return
 
-        # ── Step 2: Planning ──────────────────────────────────────
+        # ── Keyword Gate ──────────────────────────────────────────────────────
+        # auto_approve=True → skip gate, use AI-chosen keyword directly
+        # auto_approve=False → pause for user confirmation (unless plan already exists)
+        if not is_newsletter_summary and not job.content_plan:
+            if auto_approve:
+                # Set confirmed_keyword to the AI-chosen keyword and go straight to Phase 2
+                kw_data = research_data_dict.get("keyword_data") or {}
+                chosen = kw_data.get("chosen_keyword", {})
+                auto_kw = chosen.get("keyword", "") if isinstance(chosen, dict) else ""
+                await _save(job_id, confirmed_keyword=auto_kw)
+                await resume_pipeline(job_id)
+                return
+            else:
+                # Pause here — UI will show the keyword review panel
+                await _save(
+                    job_id,
+                    status=JobStatus.pending_review,
+                    current_step="keyword_confirmation",
+                )
+                return
+
+    except Exception as exc:
+        async with AsyncSessionLocal() as session:
+            job = await session.get(ArticleJob, job_id)
+            if job:
+                await _save(
+                    job_id,
+                    status=JobStatus.failed,
+                    error_message=str(exc),
+                    error_step=job.current_step,
+                )
+        raise
+
+
+# ── Phase 2: Write → Adapt → (Auto-)Approve ──────────────────────────────────
+
+async def resume_pipeline(job_id: str) -> None:
+    """
+    Phase 2 of 2: Plan → Write → Adapt → Review or Auto-Publish.
+
+    Called either by the confirm-keyword API endpoint (user confirmed keyword)
+    or directly from run_pipeline() when auto_approve=True.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            job = await session.get(ArticleJob, job_id)
+            if not job:
+                return
+
+            topic = job.topic
+            user_titles = job.user_titles
+            publish_linkedin = job.publish_linkedin
+            publish_newsletter = job.publish_newsletter
+            auto_approve = job.auto_approve
+            confirmed_keyword = job.confirmed_keyword
+
+            input_tokens = job.input_tokens_used or 0
+            output_tokens = job.output_tokens_used or 0
+
+            settings_obj = await session.get(CompanySettings, 1)
+            company_context = settings_obj.summarized_context if settings_obj else ""
+
+            from src.pipeline.summarize import get_published_memory
+            published_memory = await get_published_memory()
+            full_context = company_context + "\n" + published_memory
+
+        is_newsletter_summary = (job.newsletter_type == "summary" and publish_newsletter)
+
+        # Determine the focus keyword: user-confirmed > AI-chosen > seed
+        focus_kw = confirmed_keyword or ""
+        if not focus_kw:
+            async with AsyncSessionLocal() as session:
+                refreshed_job = await session.get(ArticleJob, job_id)
+                focus_kw = refreshed_job.seed_keywords[0] if (refreshed_job and refreshed_job.seed_keywords) else ""
+
+        # Pull SERP format from keyword_review_data to inject into planning
+        async with AsyncSessionLocal() as session:
+            refreshed = await session.get(ArticleJob, job_id)
+            kd = refreshed.keyword_data or {}
+            scraped = refreshed.scraped_content or []
+            krd = refreshed.keyword_review_data or {}
+
+        serp_format = krd.get("serp_format", "") if krd else ""
+
+        # ── Step 2: Planning ──────────────────────────────────────────────────
         if not is_newsletter_summary and not job.content_plan:
             await _save(job_id, status=JobStatus.running, current_step="planning")
+
             plan, plan_usage = await run_planning(
                 topic=topic,
                 user_titles=user_titles,
-                keyword_data=research_data_dict["keyword_data"],
-                scraped_content=research_data_dict["scraped_content"],
-                company_context=full_context
+                keyword_data=kd,
+                scraped_content=scraped,
+                company_context=full_context,
+                focus_keyword=focus_kw,
+                serp_format=serp_format,
             )
             input_tokens += plan_usage["in"]
             output_tokens += plan_usage["out"]
@@ -118,7 +239,7 @@ async def run_pipeline(job_id: str) -> None:
         else:
             plan = None
 
-        # ── Step 3: Writing ───────────────────────────────────────
+        # ── Step 3: Writing ───────────────────────────────────────────────────
         if not is_newsletter_summary and not job.article_markdown:
             await _save(job_id, status=JobStatus.running, current_step="writing")
             article_md, write_usage = await run_writing(plan, company_context=full_context)
@@ -136,14 +257,13 @@ async def run_pipeline(job_id: str) -> None:
         else:
             article_md = job.article_markdown or ""
 
-
-        # ── Step 4: LinkedIn Adaptation ─────────────────────────────
+        # ── Step 4: LinkedIn Adaptation ───────────────────────────────────────
         if not is_newsletter_summary and publish_linkedin and not job.linkedin_post:
             await _save(job_id, status=JobStatus.running, current_step="linkedin")
             li_post, li_usage = await run_linkedin_adaptation(plan, article_md)
             input_tokens += li_usage["in"]
             output_tokens += li_usage["out"]
-            
+
             await _save(
                 job_id,
                 current_step="newsletter" if publish_newsletter else None,
@@ -153,7 +273,7 @@ async def run_pipeline(job_id: str) -> None:
                 output_tokens_used=output_tokens,
             )
 
-        # ── Step 5: Newsletter Adaptation ───────────────────────────
+        # ── Step 5: Newsletter Adaptation ─────────────────────────────────────
         if publish_newsletter and not job.newsletter_html:
             await _save(job_id, status=JobStatus.running, current_step="newsletter")
             nl_data, nl_usage = await run_newsletter_adaptation(job_id, plan, article_md)
@@ -172,11 +292,12 @@ async def run_pipeline(job_id: str) -> None:
                 output_tokens_used=output_tokens,
             )
 
-        await _save(
-            job_id,
-            status=JobStatus.pending_review,
-            current_step=None,
-        )
+        # ── Gate: Auto-approve or Human Review ────────────────────────────────
+        if auto_approve:
+            await _save(job_id, status=JobStatus.approved, current_step=None)
+            await publish_job(job_id)
+        else:
+            await _save(job_id, status=JobStatus.pending_review, current_step=None)
 
     except Exception as exc:
         async with AsyncSessionLocal() as session:
@@ -191,6 +312,8 @@ async def run_pipeline(job_id: str) -> None:
         raise
 
 
+# ── Publish ───────────────────────────────────────────────────────────────────
+
 async def publish_job(job_id: str) -> None:
     """Publish approved job to WordPress (draft) + LinkedIn + Brevo."""
     from src.integrations.wordpress import get_client as wp_client
@@ -201,9 +324,9 @@ async def publish_job(job_id: str) -> None:
         job = await session.get(ArticleJob, job_id)
         if not job or job.status != JobStatus.approved:
             return
-        
+
         settings_obj = await session.get(CompanySettings, 1)
-        
+
         plan_data = job.content_plan or {}
         title = job.reviewed_title or plan_data.get("chosen_title", job.topic)
         body_md = job.reviewed_markdown or job.article_markdown or ""
@@ -214,6 +337,10 @@ async def publish_job(job_id: str) -> None:
         publish_wordpress = job.publish_wordpress
         publish_linkedin = job.publish_linkedin
         publish_newsletter = job.publish_newsletter
+
+        # Author info from settings
+        author_id = settings_obj.wp_author_id if settings_obj else None
+        author_name = (settings_obj.wp_author_name or "") if settings_obj else ""
 
     await _save(job_id, status=JobStatus.publishing)
 
@@ -234,6 +361,8 @@ async def publish_job(job_id: str) -> None:
                 focus_keyword=focus_kw,
                 meta_description=meta_desc,
                 tags=tags,
+                author_id=author_id,
+                author_name=author_name,
             )
             await _save(
                 job_id,
@@ -244,7 +373,6 @@ async def publish_job(job_id: str) -> None:
         # 2. Post to LinkedIn
         if publish_linkedin:
             li = li_client(db_settings=settings_obj)
-            # Use wp_result['url'] if available, otherwise just post the text
             author_urn = (settings_obj.li_person_urn if settings_obj else None)
             li_result = await li.post_article(
                 post_text=li_text,
@@ -262,14 +390,14 @@ async def publish_job(job_id: str) -> None:
             list_ids = job.newsletter_list_ids
             if not list_ids and settings_obj.brevo_list_id:
                 list_ids = [settings_obj.brevo_list_id]
-                
+
             if not list_ids:
                 raise ValueError("No Brevo List IDs configured.")
-            
+
             subject = job.reviewed_newsletter_subject or job.newsletter_subject
             preheader = job.reviewed_newsletter_preheader or job.newsletter_preheader
             html = job.reviewed_newsletter_html or job.newsletter_html
-            
+
             nl_result = await brevo.create_and_send_campaign(
                 name=f"Newsletter - {job.topic[:20]} - {datetime.utcnow().strftime('%Y%m%d%H%M')}",
                 subject=subject,
@@ -281,7 +409,7 @@ async def publish_job(job_id: str) -> None:
                 job_id,
                 newsletter_campaign_id=nl_result.get("campaign_id"),
             )
-        
+
         await _save(
             job_id,
             status=JobStatus.published,

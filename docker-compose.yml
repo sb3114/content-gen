@@ -39,6 +39,10 @@ services:
       # App secret key (used for signing session data)
       SECRET_KEY: "${SECRET_KEY:?SECRET_KEY not set}"
 
+      # DataForSEO (Optional)
+      DATAFORSEO_LOGIN: "${DATAFORSEO_LOGIN:-}"
+      DATAFORSEO_PASSWORD: "${DATAFORSEO_PASSWORD:-}"
+
     depends_on:
       db:
         condition: service_healthy

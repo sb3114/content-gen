@@ -13,7 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession  # needs .exec()
 from src.database import get_session
 from src.models.job import ArticleJob, JobStatus
 from src.models.settings import CompanySettings
-from src.pipeline.orchestrator import publish_job, run_pipeline
+from src.pipeline.orchestrator import publish_job, run_pipeline, resume_pipeline
 from src.pipeline.refinement import run_refinement
 
 router = APIRouter()
@@ -45,6 +45,8 @@ async def save_settings(
     wp_site_url: str = Form(None),
     wp_username: str = Form(None),
     wp_app_password: str = Form(None),
+    wp_author_id: int = Form(None),
+    wp_author_name: str = Form(None),
     li_client_id: str = Form(None),
     li_client_secret: str = Form(None),
     li_access_token: str = Form(None),
@@ -53,6 +55,8 @@ async def save_settings(
     brevo_list_id: int = Form(None),
     brevo_sender_email: str = Form(None),
     brevo_sender_name: str = Form(None),
+    dataforseo_login: str = Form(None),
+    dataforseo_password: str = Form(None),
 ):
     settings_obj = await session.get(CompanySettings, 1)
     if not settings_obj:
@@ -79,6 +83,8 @@ async def save_settings(
     if wp_site_url: settings_obj.wp_site_url = wp_site_url
     if wp_username: settings_obj.wp_username = wp_username
     if wp_app_password: settings_obj.wp_app_password = wp_app_password
+    if wp_author_id is not None: settings_obj.wp_author_id = wp_author_id
+    if wp_author_name: settings_obj.wp_author_name = wp_author_name
     
     if li_client_id: settings_obj.li_client_id = li_client_id
     if li_client_secret: settings_obj.li_client_secret = li_client_secret
@@ -89,6 +95,9 @@ async def save_settings(
     if brevo_list_id is not None: settings_obj.brevo_list_id = brevo_list_id
     if brevo_sender_email: settings_obj.brevo_sender_email = brevo_sender_email
     if brevo_sender_name: settings_obj.brevo_sender_name = brevo_sender_name
+    
+    if dataforseo_login is not None: settings_obj.dataforseo_login = dataforseo_login
+    if dataforseo_password is not None: settings_obj.dataforseo_password = dataforseo_password
     
     if brand_changed or not settings_obj.summarized_context:
         from src.pipeline.summarize import summarize_company_context
@@ -148,13 +157,14 @@ async def create_job(
     newsletter_timeframe: Optional[str] = Form(None),
     newsletter_list_ids: list[int] = Form(default=[]),
     scheduled_at_str: str = Form(None, alias="scheduled_at"),
+    auto_approve: bool = Form(False),
 ):
     def parse_lines(text: str) -> list[str]:
         return [l.strip() for l in text.strip().splitlines() if l.strip()]
 
     # Validation
     is_summary_only = (len(publish_targets) == 1 and publish_targets[0] == "newsletter" and newsletter_type == "summary")
-    
+
     if not topic:
         if is_summary_only:
             topic = f"Newsletter Summary - {datetime.utcnow().strftime('%Y-%m-%d')}"
@@ -168,6 +178,15 @@ async def create_job(
         except ValueError:
             pass
 
+    # Calculate queue position (number of existing queued/pending jobs + 1)
+    from sqlmodel import select as sql_select
+    queued_count = len((await session.exec(
+        sql_select(ArticleJob).where(
+            ArticleJob.status.in_([JobStatus.queued, JobStatus.pending])
+        )
+    )).all())
+    queue_pos = queued_count + 1
+
     job = ArticleJob(
         topic=topic,
         user_titles=parse_lines(user_titles),
@@ -180,12 +199,14 @@ async def create_job(
         newsletter_timeframe=newsletter_timeframe,
         newsletter_list_ids=newsletter_list_ids,
         scheduled_at=schedule_dt,
+        auto_approve=auto_approve,
+        status=JobStatus.queued,
+        queue_position=queue_pos,
     )
     session.add(job)
     await session.commit()
     await session.refresh(job)
 
-    background_tasks.add_task(run_pipeline, job.id)
     return RedirectResponse(url=f"/jobs/{job.id}", status_code=303)
 
 
@@ -356,13 +377,12 @@ async def retry_job(
     job = await session.get(ArticleJob, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    job.status = JobStatus.pending
+    job.status = JobStatus.queued
     job.error_message = None
     job.error_step = None
     job.updated_at = datetime.utcnow()
     session.add(job)
     await session.commit()
-    background_tasks.add_task(run_pipeline, job_id)
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
@@ -380,8 +400,71 @@ async def delete_job(session: Session, job_id: str):
 
 # ── Edit metadata ─────────────────────────────────────────────────────────────
 
+async def recalculate_publish_targets(job_id: str, added_linkedin: bool, added_newsletter: bool):
+    from src.database import AsyncSessionLocal
+    from src.models.job import ArticleJob
+    from src.models.settings import CompanySettings
+    from src.schemas.content_plan import ContentPlan
+    from src.pipeline.linkedin_adapt import run_linkedin_adaptation
+    from src.pipeline.newsletter_adapt import run_newsletter_adaptation
+
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ArticleJob, job_id)
+        if not job:
+            return
+        
+        settings_obj = await session.get(CompanySettings, 1)
+        company_context = settings_obj.summarized_context if settings_obj else ""
+        plan = ContentPlan(**job.content_plan) if job.content_plan else None
+        article_md = job.reviewed_markdown or job.article_markdown or ""
+        
+        input_tokens = job.input_tokens_used or 0
+        output_tokens = job.output_tokens_used or 0
+
+    # 1. Adapt LinkedIn
+    li_post = None
+    if added_linkedin:
+        try:
+            li_post, li_usage = await run_linkedin_adaptation(plan, article_md)
+            input_tokens += li_usage["in"]
+            output_tokens += li_usage["out"]
+        except Exception as e:
+            print(f"Error recalculating LinkedIn target: {e}")
+
+    # 2. Adapt Newsletter
+    nl_data = None
+    if added_newsletter:
+        try:
+            nl_data, nl_usage = await run_newsletter_adaptation(job_id, plan, article_md)
+            input_tokens += nl_usage["in"]
+            output_tokens += nl_usage["out"]
+        except Exception as e:
+            print(f"Error recalculating Newsletter target: {e}")
+
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ArticleJob, job_id)
+        if job:
+            if li_post:
+                job.linkedin_post = li_post.full_text
+                job.reviewed_linkedin = li_post.full_text
+            if nl_data:
+                job.newsletter_subject = nl_data.subject
+                job.newsletter_preheader = nl_data.preheader
+                job.newsletter_html = nl_data.body_html
+                job.reviewed_newsletter_subject = nl_data.subject
+                job.reviewed_newsletter_preheader = nl_data.preheader
+                job.reviewed_newsletter_html = nl_data.body_html
+            
+            job.input_tokens_used = input_tokens
+            job.output_tokens_used = output_tokens
+            job.updated_at = datetime.utcnow()
+            session.add(job)
+            await session.commit()
+
+
 @router.post("/jobs/{job_id}/edit")
 async def edit_job(
+    background_tasks: BackgroundTasks,
     session: Session,
     job_id: str,
     publish_wordpress: bool = Form(False),
@@ -393,6 +476,13 @@ async def edit_job(
     job = await session.get(ArticleJob, job_id)
     if not job:
         return RedirectResponse(url="/", status_code=303)
+
+    # Detect target changes
+    added_linkedin = publish_linkedin and not job.publish_linkedin
+    added_newsletter = publish_newsletter and not job.publish_newsletter
+
+    removed_linkedin = not publish_linkedin and job.publish_linkedin
+    removed_newsletter = not publish_newsletter and job.publish_newsletter
 
     job.publish_wordpress = publish_wordpress
     job.publish_linkedin = publish_linkedin
@@ -416,8 +506,102 @@ async def edit_job(
     else:
         job.scheduled_at = None
 
+    # Clear removed targets content
+    if removed_linkedin:
+        job.linkedin_post = None
+        job.reviewed_linkedin = None
+    if removed_newsletter:
+        job.newsletter_subject = None
+        job.newsletter_preheader = None
+        job.newsletter_html = None
+        job.reviewed_newsletter_subject = None
+        job.reviewed_newsletter_preheader = None
+        job.reviewed_newsletter_html = None
+
     job.updated_at = datetime.utcnow()
     session.add(job)
     await session.commit()
+
+    if added_linkedin or added_newsletter:
+        background_tasks.add_task(recalculate_publish_targets, job.id, added_linkedin, added_newsletter)
+
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
+
+@router.post("/jobs/{job_id}/save_content")
+async def save_job_content(
+    session: Session,
+    job_id: str,
+    reviewed_title: str = Form(...),
+    reviewed_markdown: str = Form(...),
+    reviewed_linkedin: str = Form(None),
+    reviewed_newsletter_subject: str = Form(None),
+    reviewed_newsletter_html: str = Form(None),
+):
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    job.reviewed_title = reviewed_title
+    job.reviewed_markdown = reviewed_markdown
+    if reviewed_linkedin: job.reviewed_linkedin = reviewed_linkedin
+    if reviewed_newsletter_subject: job.reviewed_newsletter_subject = reviewed_newsletter_subject
+    if reviewed_newsletter_html: job.reviewed_newsletter_html = reviewed_newsletter_html
+
+    job.updated_at = datetime.utcnow()
+    session.add(job)
+    await session.commit()
+
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
+# ── Keyword Confirmation Gate ─────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/confirm-keyword")
+async def confirm_keyword(
+    background_tasks: BackgroundTasks,
+    session: Session,
+    job_id: str,
+    confirmed_keyword: str = Form(...),
+):
+    """User confirms (or overrides) the AI-selected keyword. Resumes pipeline Phase 2."""
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if not (job.status == JobStatus.pending_review and job.current_step == "keyword_confirmation"):
+        raise HTTPException(400, "Job is not awaiting keyword confirmation")
+
+    job.confirmed_keyword = confirmed_keyword.strip()
+    job.status = JobStatus.resuming
+    job.current_step = None
+    job.updated_at = datetime.utcnow()
+    session.add(job)
+    await session.commit()
+
+    background_tasks.add_task(resume_pipeline, job_id)
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
+# ── Queue Status (HTMX polling) ───────────────────────────────────────────────
+
+from fastapi.responses import JSONResponse
+
+@router.get("/jobs/queue-status")
+async def queue_status(session: Session):
+    """Returns current queue positions for HTMX polling on the dashboard."""
+    from sqlmodel import select as sql_select
+    stmt = sql_select(ArticleJob).where(
+        ArticleJob.status.in_([
+            JobStatus.queued, JobStatus.pending, JobStatus.running, JobStatus.resuming
+        ])
+    ).order_by(ArticleJob.queue_position.asc().nulls_last(), ArticleJob.created_at.asc())
+    jobs = (await session.exec(stmt)).all()
+    return JSONResponse([
+        {
+            "id": j.id,
+            "topic": j.topic or "",
+            "status": j.status.value,
+            "queue_position": j.queue_position,
+        }
+        for j in jobs
+    ])
