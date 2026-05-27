@@ -49,6 +49,13 @@ async def init_db():
         await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS wp_author_id INTEGER;"))
         await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS wp_author_name VARCHAR;"))
 
+        # LLM Orchestration fields
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS llm_provider VARCHAR NOT NULL DEFAULT 'gemini';"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS claude_setup_token VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS allow_fallback_to_haiku BOOLEAN NOT NULL DEFAULT TRUE;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS rate_limit_banner VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS rate_limit_until TIMESTAMP;"))
+
     try:
         # Alter ENUM types outside transaction blocks (PostgreSQL requires this)
         async with engine.connect() as conn:

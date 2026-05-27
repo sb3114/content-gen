@@ -524,22 +524,13 @@ Return your choice in strict JSON format with exactly two keys:
 }}
 """
         try:
-            model = genai.GenerativeModel(settings.gemini_planning_model)
-            response = await model.generate_content_async(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json"
-                )
+            from src.pipeline.llm import call_llm
+            text, _ = await call_llm(
+                prompt=prompt,
+                tier="sonnet",
+                use_json=True,
+                db_settings=db_settings
             )
-            
-            text = response.text.strip()
-            if text.startswith("```json"):
-                text = text[7:]
-            elif text.startswith("```"):
-                text = text[3:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
             
             result = json.loads(text)
             chosen_kw_name = result.get("chosen_keyword", "")
@@ -592,15 +583,12 @@ Return strict JSON only:
 {{"format": "...", "confidence": "high|medium|low", "examples": ["title1", "title2", "title3"]}}
 """
         try:
-            model = genai.GenerativeModel(settings.gemini_planning_model)
-            response = await model.generate_content_async(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    max_output_tokens=256,
-                )
+            from src.pipeline.llm import call_llm
+            text, _ = await call_llm(
+                prompt=prompt,
+                tier="haiku",
+                use_json=True
             )
-            text = response.text.strip()
             return json.loads(text)
         except Exception as e:
             logger.warning(f"SERP format detection failed: {e}")

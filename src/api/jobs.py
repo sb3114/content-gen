@@ -42,6 +42,9 @@ async def save_settings(
     tone_of_voice: str = Form(None),
     audiences: str = Form(None),
     company_description: str = Form(None),
+    llm_provider: str = Form("gemini"),
+    claude_setup_token: str = Form(None),
+    allow_fallback_to_haiku: bool = Form(False),
     wp_site_url: str = Form(None),
     wp_username: str = Form(None),
     wp_app_password: str = Form(None),
@@ -79,6 +82,11 @@ async def save_settings(
     settings_obj.audiences = audiences
     settings_obj.company_description = company_description
 
+    # Update LLM Settings
+    settings_obj.llm_provider = llm_provider
+    if claude_setup_token is not None: settings_obj.claude_setup_token = claude_setup_token.strip() or None
+    settings_obj.allow_fallback_to_haiku = allow_fallback_to_haiku
+
     # Update Credentials
     if wp_site_url: settings_obj.wp_site_url = wp_site_url
     if wp_username: settings_obj.wp_username = wp_username
@@ -113,15 +121,19 @@ async def save_settings(
 
 
 
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, session: Session):
+    settings_obj = await session.get(CompanySettings, 1)
+    if not settings_obj:
+        settings_obj = CompanySettings(id=1)
     jobs = (await session.exec(
         select(ArticleJob).order_by(ArticleJob.created_at.desc()).limit(50)
     )).all()
     return templates.TemplateResponse(
-        "index.html", {"request": request, "jobs": jobs}
+        "index.html", {"request": request, "jobs": jobs, "settings": settings_obj}
     )
 
 

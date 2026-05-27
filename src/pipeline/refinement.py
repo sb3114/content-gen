@@ -54,27 +54,12 @@ async def run_refinement(article_draft: str, linkedin_draft: str, user_prompt: s
 
     schema = _clean_schema(RefinedContent.model_json_schema())
 
-    model = genai.GenerativeModel(
-        settings.gemini_writing_model,
-        generation_config=genai.GenerationConfig(
-            max_output_tokens=8192,
-            response_mime_type="application/json",
-            response_schema=schema,
-        ),
-    )
+    from src.pipeline.llm import call_llm
 
-    response = await model.generate_content_async(prompt)
+    text, usage = await call_llm(
+        prompt=prompt,
+        tier="haiku",
+        response_schema=RefinedContent
+    )
     
-    usage = {
-        "in": response.usage_metadata.prompt_token_count if response.usage_metadata else 0,
-        "out": response.usage_metadata.candidates_token_count if response.usage_metadata else 0
-    }
-    
-    # Strip markdown code blocks if the model wrapped the JSON
-    text = response.text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-        if text.endswith("```"):
-            text = text.rsplit("\n", 1)[0]
-            
     return json.loads(text), usage

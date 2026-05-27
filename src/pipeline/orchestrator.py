@@ -149,6 +149,29 @@ async def run_pipeline(job_id: str) -> None:
                 return
 
     except Exception as exc:
+        from src.pipeline.llm import LLMRateLimitException
+        if isinstance(exc, LLMRateLimitException):
+            async with AsyncSessionLocal() as session:
+                settings_obj = await session.get(CompanySettings, 1)
+                if not settings_obj:
+                    settings_obj = CompanySettings(id=1)
+                
+                from datetime import timedelta
+                retry_time = datetime.utcnow() + timedelta(seconds=exc.retry_after_seconds)
+                settings_obj.rate_limit_banner = f"LLM rate limit reached. Next retry automatically scheduled at {retry_time.strftime('%H:%M:%S')} UTC."
+                settings_obj.rate_limit_until = retry_time
+                session.add(settings_obj)
+                
+                job = await session.get(ArticleJob, job_id)
+                if job:
+                    job.status = JobStatus.queued
+                    job.queue_position = 1
+                    session.add(job)
+                await session.commit()
+            import logging
+            logging.getLogger(__name__).warning(f"Job {job_id} hit LLM rate limit in Phase 1. Scheduled to retry in {exc.retry_after_seconds}s at {retry_time} UTC.")
+            return
+
         async with AsyncSessionLocal() as session:
             job = await session.get(ArticleJob, job_id)
             if job:
@@ -300,6 +323,29 @@ async def resume_pipeline(job_id: str) -> None:
             await _save(job_id, status=JobStatus.pending_review, current_step=None)
 
     except Exception as exc:
+        from src.pipeline.llm import LLMRateLimitException
+        if isinstance(exc, LLMRateLimitException):
+            async with AsyncSessionLocal() as session:
+                settings_obj = await session.get(CompanySettings, 1)
+                if not settings_obj:
+                    settings_obj = CompanySettings(id=1)
+                
+                from datetime import timedelta
+                retry_time = datetime.utcnow() + timedelta(seconds=exc.retry_after_seconds)
+                settings_obj.rate_limit_banner = f"LLM rate limit reached. Next retry automatically scheduled at {retry_time.strftime('%H:%M:%S')} UTC."
+                settings_obj.rate_limit_until = retry_time
+                session.add(settings_obj)
+                
+                job = await session.get(ArticleJob, job_id)
+                if job:
+                    job.status = JobStatus.queued
+                    job.queue_position = 1
+                    session.add(job)
+                await session.commit()
+            import logging
+            logging.getLogger(__name__).warning(f"Job {job_id} hit LLM rate limit in Phase 2. Scheduled to retry in {exc.retry_after_seconds}s at {retry_time} UTC.")
+            return
+
         async with AsyncSessionLocal() as session:
             job = await session.get(ArticleJob, job_id)
             if job:

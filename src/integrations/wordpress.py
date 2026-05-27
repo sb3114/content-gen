@@ -89,7 +89,7 @@ class WordPressClient:
             code = body.get("code", "")
             if "not allowed" in msg or code in ("rest_cannot_create", "rest_forbidden"):
                 raise PermissionError(
-                    f"User '{settings.wordpress_username}' does not have permission to create posts. "
+                    f"User '{self.username}' does not have permission to create posts. "
                     "Change the WP user role to Editor or Administrator."
                 )
             resp.raise_for_status()

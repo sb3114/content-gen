@@ -60,16 +60,11 @@ async def run_writing(plan: ContentPlan, company_context: str = "") -> tuple[str
         angles="\n".join(f"- {a}" for a in plan.content_angles),
     )
 
-    model = genai.GenerativeModel(
-        settings.gemini_writing_model,
-        generation_config=genai.GenerationConfig(max_output_tokens=8192),
-    )
+    from src.pipeline.llm import call_llm
 
-    response = await model.generate_content_async(prompt)
+    text, usage = await call_llm(
+        prompt=prompt,
+        tier="sonnet"
+    )
     
-    usage = {
-        "in": response.usage_metadata.prompt_token_count if response.usage_metadata else 0,
-        "out": response.usage_metadata.candidates_token_count if response.usage_metadata else 0
-    }
-    
-    return response.text, usage
+    return text, usage

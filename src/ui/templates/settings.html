@@ -106,9 +106,52 @@
       {% endif %}
     </div>
 
+    <!-- ── LLM Orchestration ────────────────────────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <h2 style="margin:0;">🤖 LLM Connection & Orchestration</h2>
+        <button type="button" id="btn-test-claude" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span id="claude-btn-text">Test Connection</span>
+        </button>
+      </div>
+
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Active LLM Provider</label>
+          <select name="llm_provider" id="llm_provider" class="form-input" style="background-color: var(--bg-card); color: var(--text);">
+            <option value="gemini" {% if settings.llm_provider == 'gemini' %}selected{% endif %}>Google Gemini (API)</option>
+            <option value="claude" {% if settings.llm_provider == 'claude' %}selected{% endif %}>Claude Code (Subscription)</option>
+          </select>
+          <p class="form-hint">Choose which LLM engine handles content orchestration and writing.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex; align-items:center; gap:0.5rem;">
+            <span>Allow Fallback to Claude Haiku</span>
+            <input type="checkbox" name="allow_fallback_to_haiku" value="true" {% if settings.allow_fallback_to_haiku %}checked{% endif %} style="margin:0; width:16px; height:16px; cursor:pointer;">
+          </label>
+          <p class="form-hint" style="margin-top: 0.8rem;">If checked, Sonnet 3.5 rate-limit errors will gracefully failover to Haiku. If unchecked, the pipeline pauses immediately.</p>
+        </div>
+      </div>
+
+      <div class="form-group" id="claude-token-group" style="margin-top:1rem;">
+        <label class="form-label">Claude Code Setup Token</label>
+        <input type="password" id="claude_setup_token" name="claude_setup_token" class="form-input" placeholder="sk-ant-oat01-••••••••••••" value="{{ settings.claude_setup_token or '' }}">
+        <p class="form-hint">Generated in your local terminal via <code>claude setup-token</code>. Enter to use your Claude Pro/Max subscription.</p>
+      </div>
+
+      <!-- Claude Connection Status Display -->
+      <div id="claude-status-box" style="margin-top: 1rem; display: none; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.85rem; font-family: 'Inter', sans-serif;">
+      </div>
+    </div>
+
     <!-- ── WordPress Integration ────────────────────────────────── -->
     <div class="settings-section" style="margin-top: 2rem;">
-      <h2>🌐 WordPress Connection</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <h2 style="margin:0;">🌐 WordPress Connection</h2>
+        <button type="button" id="btn-test-wp" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span id="wp-btn-text">Test Connection</span>
+        </button>
+      </div>
       <div class="grid-2">
         <div class="form-group">
           <label class="form-label">Site URL</label>
@@ -136,13 +179,22 @@
           <p class="form-hint">Displayed in the JSON-LD Article schema on each published post.</p>
         </div>
       </div>
+
+      <!-- Connection Status Display -->
+      <div id="wp-status-box" style="margin-top: 1rem; display: none; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.85rem; font-family: 'Inter', sans-serif;">
+      </div>
     </div>
 
     <!-- ── LinkedIn Integration ─────────────────────────────────── -->
     <div class="settings-section" style="margin-top: 2rem;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <h2 style="margin:0;">💼 LinkedIn OAuth</h2>
-        <a href="/auth/linkedin" class="btn btn--ghost" style="font-size:0.8rem;">Connect / Re-authorize</a>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+          <button type="button" id="btn-test-li" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span id="li-btn-text">Test Connection</span>
+          </button>
+          <a href="/auth/linkedin" class="btn btn--ghost" style="font-size:0.8rem;">Connect / Re-authorize</a>
+        </div>
       </div>
       
       <div class="grid-2">
@@ -171,6 +223,10 @@
           <label class="form-label" style="font-size:0.8rem;">Person URN</label>
           <input type="text" name="li_person_urn" class="form-input" style="font-size:0.8rem;" value="{{ settings.li_person_urn or '' }}" placeholder="urn:li:person:...">
         </div>
+      </div>
+
+      <!-- Connection Status Display -->
+      <div id="li-status-box" style="margin-top: 1rem; display: none; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.85rem; font-family: 'Inter', sans-serif;">
       </div>
     </div>
 
@@ -232,6 +288,95 @@
 </div>
 
 <script>
+document.getElementById('btn-test-wp').addEventListener('click', async () => {
+  const btnText = document.getElementById('wp-btn-text');
+  const statusBox = document.getElementById('wp-status-box');
+  
+  btnText.textContent = 'Testing connection...';
+  statusBox.style.display = 'block';
+  statusBox.style.borderColor = 'var(--border)';
+  statusBox.style.backgroundColor = 'rgba(0,0,0,0.2)';
+  statusBox.style.color = 'var(--text-dim)';
+  statusBox.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-dim); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; vertical-align:middle;"></span>Testing WordPress connection...';
+  
+  try {
+    const response = await fetch('/auth/wordpress/validate');
+    const data = await response.json();
+    
+    if (data.ok) {
+      statusBox.style.color = '#34d399';
+      statusBox.style.borderColor = 'rgba(52,211,153,0.3)';
+      statusBox.style.backgroundColor = 'rgba(52,211,153,0.05)';
+      statusBox.innerHTML = `
+        <div style="font-weight:600; margin-bottom:0.25rem;">✅ Connection Successful!</div>
+        <div style="font-size:0.8rem; opacity:0.9;">
+          <strong>Username:</strong> ${data.username}<br>
+          <strong>Site URL:</strong> ${data.site}<br>
+          <strong>Status:</strong> Active (write access verified via temporary draft)
+        </div>
+      `;
+    } else {
+      throw new Error(data.error || 'Connection failed.');
+    }
+  } catch (error) {
+    statusBox.style.color = '#f87171';
+    statusBox.style.borderColor = 'rgba(248,113,113,0.3)';
+    statusBox.style.backgroundColor = 'rgba(248,113,113,0.05)';
+    statusBox.innerHTML = `
+      <div style="font-weight:600; margin-bottom:0.25rem;">❌ Connection Failed</div>
+      <div style="font-size:0.8rem; opacity:0.9;">${error.message}</div>
+    `;
+  } finally {
+    btnText.textContent = 'Test Connection';
+  }
+});
+
+document.getElementById('btn-test-li').addEventListener('click', async () => {
+  const btnText = document.getElementById('li-btn-text');
+  const statusBox = document.getElementById('li-status-box');
+  
+  btnText.textContent = 'Testing connection...';
+  statusBox.style.display = 'block';
+  statusBox.style.borderColor = 'var(--border)';
+  statusBox.style.backgroundColor = 'rgba(0,0,0,0.2)';
+  statusBox.style.color = 'var(--text-dim)';
+  statusBox.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-dim); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; vertical-align:middle;"></span>Checking connection against LinkedIn API...';
+  
+  try {
+    const response = await fetch('/auth/linkedin/validate');
+    const data = await response.json();
+    
+    if (data.ok) {
+      statusBox.style.color = '#34d399';
+      statusBox.style.borderColor = 'rgba(52,211,153,0.3)';
+      statusBox.style.backgroundColor = 'rgba(52,211,153,0.05)';
+      const days = data.days_remaining;
+      const daysStr = days !== null ? `${days} days remaining` : '~60 days (issued date unknown)';
+      statusBox.innerHTML = `
+        <div style="font-weight:600; margin-bottom:0.25rem;">✅ Connection Successful!</div>
+        <div style="font-size:0.8rem; opacity:0.9;">
+          <strong>Name:</strong> ${data.name}<br>
+          <strong>Email:</strong> ${data.email}<br>
+          <strong>Person URN:</strong> ${data.urn}<br>
+          <strong>Token Validity:</strong> ${daysStr}
+        </div>
+      `;
+    } else {
+      throw new Error(data.error || 'Connection failed.');
+    }
+  } catch (error) {
+    statusBox.style.color = '#f87171';
+    statusBox.style.borderColor = 'rgba(248,113,113,0.3)';
+    statusBox.style.backgroundColor = 'rgba(248,113,113,0.05)';
+    statusBox.innerHTML = `
+      <div style="font-weight:600; margin-bottom:0.25rem;">❌ Connection Failed</div>
+      <div style="font-size:0.8rem; opacity:0.9;">${error.message}</div>
+    `;
+  } finally {
+    btnText.textContent = 'Test Connection';
+  }
+});
+
 document.getElementById('btn-test-dfs').addEventListener('click', async () => {
   const btnText = document.getElementById('dfs-btn-text');
   const statusBox = document.getElementById('dfs-status-box');
@@ -257,6 +402,50 @@ document.getElementById('btn-test-dfs').addEventListener('click', async () => {
           <strong>Account Login:</strong> ${data.login}<br>
           <strong>Account Balance:</strong> $${Number(data.balance).toFixed(2)} USD<br>
           <strong>Total Deposited:</strong> $${Number(data.total).toFixed(2)} USD
+        </div>
+      `;
+    } else {
+      throw new Error(data.error || 'Connection failed.');
+    }
+  } catch (error) {
+    statusBox.style.color = '#f87171';
+    statusBox.style.borderColor = 'rgba(248,113,113,0.3)';
+    statusBox.style.backgroundColor = 'rgba(248,113,113,0.05)';
+    statusBox.innerHTML = `
+      <div style="font-weight:600; margin-bottom:0.25rem;">❌ Connection Failed</div>
+      <div style="font-size:0.8rem; opacity:0.9;">${error.message}</div>
+    `;
+  } finally {
+    btnText.textContent = 'Test Connection';
+  }
+});
+
+document.getElementById('btn-test-claude').addEventListener('click', async () => {
+  const btnText = document.getElementById('claude-btn-text');
+  const statusBox = document.getElementById('claude-status-box');
+  
+  btnText.textContent = 'Testing connection...';
+  statusBox.style.display = 'block';
+  statusBox.style.borderColor = 'var(--border)';
+  statusBox.style.backgroundColor = 'rgba(0,0,0,0.2)';
+  statusBox.style.color = 'var(--text-dim)';
+  statusBox.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-dim); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; vertical-align:middle;"></span>Running verification against Claude Code CLI...';
+  
+  try {
+    const tokenInput = document.getElementById('claude_setup_token');
+    const tokenVal = tokenInput ? tokenInput.value.trim() : '';
+    const response = await fetch(`/auth/claude/validate?token=${encodeURIComponent(tokenVal)}`);
+    const data = await response.json();
+    
+    if (data.ok) {
+      statusBox.style.color = '#34d399';
+      statusBox.style.borderColor = 'rgba(52,211,153,0.3)';
+      statusBox.style.backgroundColor = 'rgba(52,211,153,0.05)';
+      statusBox.innerHTML = `
+        <div style="font-weight:600; margin-bottom:0.25rem;">✅ Connection Successful!</div>
+        <div style="font-size:0.8rem; opacity:0.9;">
+          <strong>CLI Status:</strong> ${data.cli_version || 'Ready'}<br>
+          <strong>Auth Level:</strong> Subscription verified (Headless CLI responsive)
         </div>
       `;
     } else {

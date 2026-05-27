@@ -7,6 +7,7 @@ from sqlmodel import select
 
 from src.database import AsyncSessionLocal
 from src.models.job import ArticleJob, JobStatus
+from src.models.settings import CompanySettings
 from src.pipeline.orchestrator import publish_job, run_pipeline
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,20 @@ async def check_pending_jobs():
     """
     try:
         async with AsyncSessionLocal() as session:
+            # Rule 0: check for LLM rate limit pauses
+            settings_obj = await session.get(CompanySettings, 1)
+            if settings_obj and settings_obj.rate_limit_until:
+                if settings_obj.rate_limit_until > datetime.utcnow():
+                    logger.info(f"Queue paused: active rate limit until {settings_obj.rate_limit_until} UTC.")
+                    return
+                else:
+                    # Rate limit expired! Clear the banner and block timestamp
+                    settings_obj.rate_limit_until = None
+                    settings_obj.rate_limit_banner = None
+                    session.add(settings_obj)
+                    await session.commit()
+                    logger.info("Claude rate limit reset window passed. Cleared active banner and resumed queue.")
+
             # Rule 1: bail if pipeline is active
             active_stmt = select(ArticleJob).where(
                 ArticleJob.status.in_([JobStatus.running, JobStatus.resuming])

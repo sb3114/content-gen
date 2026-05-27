@@ -28,13 +28,13 @@ async def summarize_company_context(settings_dict: dict) -> str:
         settings_json="\n".join([f"- {k.replace('_', ' ').title()}: {v}" for k, v in valid_settings.items()])
     )
 
-    model = genai.GenerativeModel(
-        settings.gemini_planning_model, # Flash model is perfect for summarization
-        generation_config=genai.GenerationConfig(max_output_tokens=1024),
+    from src.pipeline.llm import call_llm
+    
+    text, _ = await call_llm(
+        prompt=prompt,
+        tier="haiku"
     )
-
-    response = await model.generate_content_async(prompt)
-    return response.text.strip()
+    return text.strip()
 
 
 async def get_published_memory() -> str:

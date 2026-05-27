@@ -65,6 +65,16 @@
 {% endblock %}
 
 {% block content %}
+{% if settings and settings.rate_limit_banner %}
+<div class="rate-limit-banner" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-lg); padding: 1.2rem; margin-bottom: 2rem; display: flex; align-items: center; gap: 1rem; color: #f87171; box-shadow: 0 4px 20px rgba(239, 68, 68, 0.1);">
+  <span style="font-size: 1.8rem; line-height: 1;">⚠️</span>
+  <div>
+    <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #ef4444; letter-spacing: 0.02em;">LLM rate limit reached</h3>
+    <p style="margin: 0.2rem 0 0 0; font-size: 0.88rem; opacity: 0.9;">{{ settings.rate_limit_banner }} The sequential queue is paused and will automatically resume once the window clears.</p>
+  </div>
+</div>
+{% endif %}
+
 <div class="page-header">
   <div>
     <h1 class="page-title">Workflow Jobs</h1>

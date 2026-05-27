@@ -111,26 +111,12 @@ async def run_newsletter_adaptation(
             blog_url=job.wp_post_url or ""
         )
 
-    model = genai.GenerativeModel(
-        settings.gemini_planning_model,
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json",
-            response_schema=_pydantic_to_genai_schema(NewsletterSchema),
-            max_output_tokens=4096,
-        ),
-    )
+    from src.pipeline.llm import call_llm
 
-    response = await model.generate_content_async(prompt)
-    
-    usage = {
-        "in": response.usage_metadata.prompt_token_count if response.usage_metadata else 0,
-        "out": response.usage_metadata.candidates_token_count if response.usage_metadata else 0
-    }
-    
-    # Strip markdown code blocks
-    text = response.text.strip()
-    if text.startswith("```json"): text = text[7:]
-    elif text.startswith("```"): text = text[3:]
-    if text.endswith("```"): text = text[:-3]
+    text, usage = await call_llm(
+        prompt=prompt,
+        tier="sonnet",
+        response_schema=NewsletterSchema
+    )
     
     return NewsletterSchema(**json.loads(text.strip())), usage

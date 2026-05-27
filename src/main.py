@@ -19,6 +19,7 @@ from src.pipeline.scheduler import start_scheduler, stop_scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Run schema migrations and start the sequential queue scheduler
     await init_db()
     start_scheduler()
     yield

@@ -117,30 +117,52 @@ async def run_planning(
     if focus_keyword:
         prompt += f"\n\nCRITICAL SEO REQUIREMENT:\nYou MUST use '{focus_keyword}' exactly as the 'focus_keyword' field in the returned JSON. Base the article outline, angles, and title on ranking for this focus keyword."
 
-    model = genai.GenerativeModel(
-        settings.gemini_planning_model,
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json",
-            response_schema=_pydantic_to_genai_schema(ContentPlan),
-            max_output_tokens=8192,
-        ),
-    )
+    from src.pipeline.llm import call_llm
 
-    response = await model.generate_content_async(prompt)
+    # 1. Run core high-thinking planning outline (Sonnet)
+    plan_text, usage_sonnet = await call_llm(
+        prompt=prompt,
+        tier="sonnet",
+        response_schema=ContentPlan
+    )
     
+    plan = ContentPlan(**json.loads(plan_text))
+
+    # 2. Run post-processing to generate/refine SEO Title, Meta Description, and Tag Categorization (Haiku)
+    haiku_prompt = f"""\
+You are an expert SEO copywriter and categorizer.
+Based on the following content plan outline and focus keyword, generate the perfect click-worthy SEO title (under 60 characters), a compelling meta description (under 160 characters), and a list of 4-6 highly relevant blog tags/categories to classify the post.
+
+Focus Keyword: {plan.focus_keyword or focus_keyword}
+Outline:
+{json.dumps(plan.outline or [], indent=2)}
+
+Return a valid JSON object matching this exact structure:
+{{
+  "chosen_title": "compelling click-worthy SEO title",
+  "meta_description": "high search-intent meta description",
+  "tags": ["tag1", "tag2", "tag3", "tag4"]
+}}
+"""
+    
+    haiku_text, usage_haiku = await call_llm(
+        prompt=haiku_prompt,
+        tier="haiku",
+        use_json=True
+    )
+    
+    haiku_data = json.loads(haiku_text)
+    
+    # Enrich the Sonnet-generated ContentPlan with the Haiku-generated SEO and tags
+    plan.chosen_title = haiku_data.get("chosen_title") or plan.chosen_title
+    plan.meta_description = haiku_data.get("meta_description") or plan.meta_description
+    plan.secondary_keywords = haiku_data.get("tags") or plan.secondary_keywords or []
+
+    # Combine token usage
     usage = {
-        "in": response.usage_metadata.prompt_token_count if response.usage_metadata else 0,
-        "out": response.usage_metadata.candidates_token_count if response.usage_metadata else 0
+        "in": usage_sonnet["in"] + usage_haiku["in"],
+        "out": usage_sonnet["out"] + usage_haiku["out"]
     }
     
-    # Strip markdown code blocks if present
-    text = response.text.strip()
-    if text.startswith("```json"):
-        text = text[7:]
-    elif text.startswith("```"):
-        text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
-    
-    return ContentPlan(**json.loads(text)), usage
+    return plan, usage
+

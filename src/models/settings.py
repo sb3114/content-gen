@@ -1,10 +1,19 @@
 from typing import Optional
+from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, Text
 
 class CompanySettings(SQLModel, table=True):
     __tablename__ = "company_settings"
 
     id: int = Field(default=1, primary_key=True)
+    
+    # LLM Settings
+    llm_provider: str = Field(default="gemini")
+    claude_setup_token: Optional[str] = Field(default=None)
+    allow_fallback_to_haiku: bool = Field(default=True)
+    rate_limit_banner: Optional[str] = Field(default=None)
+    rate_limit_until: Optional[datetime] = Field(default=None)
+
     
     # Brand Context
     marketing_strategy: Optional[str] = Field(default=None, sa_column=Column(Text))

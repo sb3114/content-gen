@@ -10,10 +10,13 @@ LinkedIn:   Full OAuth 2.0 Authorization Code flow.
             to their ~/content-engine-secrets.sh and re-inject on next startup.
 """
 import secrets
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+
+logger = logging.getLogger(__name__)
 
 from src.integrations import linkedin as li_integration
 from src.integrations import wordpress as wp_integration
@@ -41,6 +44,107 @@ async def wp_validate() -> dict:
         info = await client.validate_token()
         return info
     except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+# ── Claude CLI status ────────────────────────────────────────────────────────
+
+@router.get("/claude/validate")
+async def claude_validate(token: str = None) -> dict:
+    """
+    Check if the claude CLI is installed and running correctly.
+    Supports real-time validation via the token query parameter.
+    """
+    import subprocess
+    import os
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
+    try:
+        if not token:
+            async with AsyncSessionLocal() as session:
+                db_settings = await session.get(CompanySettings, 1)
+            token = db_settings.claude_setup_token if db_settings else None
+            
+        if not token:
+            return {"ok": False, "error": "Claude Setup Token not configured in Settings."}
+
+        # Log details about the provided setup token for debugging
+        token_safe = f"{token[:15]}...{token[-5:]}" if len(token) > 20 else "[short token]"
+        logger.info(f"Claude Connection Test triggered. Token info: {token_safe} (length: {len(token)} chars)")
+
+        env = os.environ.copy()
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+        
+        # Ensure we unset ANTHROPIC_API_KEY if present to guarantee the CLI uses the CLAUDE_CODE_OAUTH_TOKEN
+        if "ANTHROPIC_API_KEY" in env:
+            logger.info("Found ANTHROPIC_API_KEY in environment. Unsetting it for Claude CLI token verification to ensure subscription token precedence.")
+            del env["ANTHROPIC_API_KEY"]
+
+        # 1. Run a quick check using "claude --version" to ensure binary is present
+        try:
+            logger.info("Executing 'claude --version' subprocess check...")
+            res = subprocess.run(
+                ["claude", "--version"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=5
+            )
+            logger.info(f"'claude --version' completed with return code {res.returncode}")
+            logger.debug(f"'claude --version' stdout: {res.stdout.strip()}")
+            logger.debug(f"'claude --version' stderr: {res.stderr.strip()}")
+        except subprocess.TimeoutExpired as err:
+            logger.error(f"'claude --version' subprocess timed out: {err}")
+            return {"ok": False, "error": "Claude CLI response timed out. Please verify your installation."}
+
+        if res.returncode != 0:
+            logger.error(f"Claude CLI not responsive. Stderr: {res.stderr.strip()}")
+            return {
+                "ok": False,
+                "error": f"Claude Code CLI is not responsive. Return code: {res.returncode}. Stderr: {res.stderr}"
+            }
+        
+        # 2. Skip running interactive "claude auth login" because CLAUDE_CODE_OAUTH_TOKEN 
+        # is automatically picked up by Claude CLI for headless, zero-human-interaction execution.
+        
+        # 3. Test a basic prompt to verify the setup token is valid and active
+        try:
+            logger.info("Executing 'claude -p \"Say OK\"' query to test setup-token connectivity...")
+            res_test = subprocess.run(
+                ["claude", "-p", "Say OK"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=15
+            )
+            logger.info(f"'claude -p \"Say OK\"' completed with return code {res_test.returncode}")
+            logger.info(f"Test query stdout output: {res_test.stdout.strip()}")
+            logger.info(f"Test query stderr output: {res_test.stderr.strip()}")
+        except subprocess.TimeoutExpired as err:
+            logger.error(f"'claude -p \"Say OK\" --bare' connection timed out: {err}")
+            return {"ok": False, "error": "Claude API connection timed out. Please check your internet connection or try again."}
+
+        if res_test.returncode != 0:
+            err_msg = res_test.stderr or res_test.stdout
+            logger.error(f"Claude CLI authorization test failed (exit code {res_test.returncode}). Content: {err_msg.strip()}")
+            return {
+                "ok": False,
+                "error": f"Claude CLI authorization failed. Stderr: {res_test.stderr or res_test.stdout}"
+            }
+
+        logger.info("Claude Connection Test completed successfully!")
+        return {
+            "ok": True,
+            "cli_version": res.stdout.strip()
+        }
+    except FileNotFoundError as err:
+        logger.error(f"Claude CLI executable file not found: {err}")
+        return {
+            "ok": False,
+            "error": "Claude CLI binary ('claude') not found in PATH inside the container. Please rebuild the Docker containers using 'docker compose up --build'."
+        }
+    except Exception as exc:
+        logger.error(f"Unexpected exception during Claude Connection Test: {exc}", exc_info=True)
         return {"ok": False, "error": str(exc)}
 
 
