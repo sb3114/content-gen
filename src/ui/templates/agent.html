@@ -295,6 +295,133 @@
   /* Hide htmx spinner class by default */
   .htmx-indicator { display: none !important; }
   .htmx-request .htmx-indicator { display: flex !important; }
+  /* ── Modern Execution Timeline ──────────────────── */
+  .execution-timeline {
+    margin: 0.5rem 0 1rem 0;
+    padding: 0.75rem 1rem;
+    background: var(--surface-1);
+    border: 1px dashed var(--surface-2);
+    border-radius: var(--radius-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    position: relative;
+  }
+  
+  .execution-timeline::before {
+    content: '';
+    position: absolute;
+    left: 20px;
+    top: 24px;
+    bottom: 24px;
+    width: 2px;
+    background: var(--surface-2);
+    z-index: 0;
+  }
+
+  .timeline-node {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+  }
+
+  .timeline-node__header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0.5rem;
+    cursor: pointer;
+    border-radius: var(--radius-md);
+    transition: background 0.2s;
+  }
+  
+  .timeline-node__header:hover {
+    background: var(--surface-2);
+  }
+
+  .timeline-node__bullet {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--surface-3);
+    border: 2px solid var(--surface-1);
+    box-shadow: 0 0 0 2px var(--surface-2);
+    transition: background 0.3s, box-shadow 0.3s;
+    flex-shrink: 0;
+  }
+
+  .timeline-node--active .timeline-node__bullet {
+    background: var(--primary);
+    box-shadow: 0 0 0 2px rgba(var(--primary-rgb, 99, 102, 241), 0.3), 0 0 8px var(--primary);
+    animation: pulse 1.5s infinite;
+  }
+  
+  .timeline-node--success .timeline-node__bullet {
+    background: #10b981;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
+  }
+  
+  .timeline-node--failure .timeline-node__bullet {
+    background: #ef4444;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+  }
+
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+  }
+
+  .timeline-node__title {
+    font-size: 0.88rem;
+    font-weight: 550;
+    color: var(--text-1);
+    flex: 1;
+  }
+
+  .timeline-node__arrow {
+    font-size: 0.75rem;
+    color: var(--text-2);
+    transition: transform 0.2s;
+  }
+
+  .timeline-node--expanded .timeline-node__arrow {
+    transform: rotate(180deg);
+  }
+
+  .timeline-node__body {
+    display: none;
+    padding: 0.5rem 0.5rem 0.5rem 1.75rem;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .timeline-node--expanded .timeline-node__body {
+    display: flex;
+  }
+
+  .timeline-node__code-block {
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+    border-radius: var(--radius-md);
+    padding: 0.5rem 0.75rem;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.78rem;
+    color: var(--text-2);
+    overflow-x: auto;
+    max-height: 180px;
+    margin: 0;
+  }
+  
+  .timeline-node__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-2);
+    margin-bottom: 0.15rem;
+  }
 </style>
 <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 {% endblock %}
@@ -383,11 +510,7 @@
 
     <!-- ── Input Bar ───────────────────────────────── -->
     <div class="chat-input-area">
-      <form id="chat-form"
-            hx-post="/chat/message"
-            hx-target="#chat-messages"
-            hx-swap="beforeend"
-            hx-indicator="#typing-indicator">
+      <form id="chat-form" onsubmit="handleChatSubmit(event)">
 
         <input type="hidden" name="conversation_id" id="active-conv-id"
                value="{{ active_conversation.id if active_conversation else '' }}">
@@ -427,7 +550,7 @@
   function handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      document.getElementById('chat-form').requestSubmit();
+      document.getElementById('chat-form').dispatchEvent(new Event('submit', { cancelable: true }));
     }
   }
 
@@ -439,19 +562,286 @@
     autoResize(el);
   }
 
-  // Clear input and remove welcome state after sending
-  const form = document.getElementById('chat-form');
-  form.addEventListener('htmx:beforeRequest', () => {
+  // Handle chat submission
+  async function handleChatSubmit(event) {
+    if (event) event.preventDefault();
+    
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    if (!message) return;
+    
+    // Clear input instantly and auto-resize
+    input.value = '';
+    autoResize(input);
+    
+    // Remove welcome state instantly
     const welcome = document.getElementById('welcome-msg');
     if (welcome) welcome.remove();
-  });
-
-  form.addEventListener('htmx:afterRequest', () => {
-    const input = document.getElementById('chat-input');
-    input.value = '';
-    input.style.height = 'auto';
+    
+    // Render the user's message bubble instantly
+    const chatMessages = document.getElementById('chat-messages');
+    const userMsgHTML = `
+      <div class="msg msg--user">
+        <div class="msg__bubble">${escapeHTML(message)}</div>
+      </div>
+    `;
+    chatMessages.insertAdjacentHTML('beforeend', userMsgHTML);
     scrollToBottom();
-  });
+    
+    // Disable send button and textarea during submission
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn.disabled = true;
+    input.disabled = true;
+    
+    // Retrieve conversation_id
+    const activeConvIdInput = document.getElementById('active-conv-id');
+    const conversationId = activeConvIdInput.value;
+    
+    // Render the AI response container (initially empty with avatar, thinking timeline placeholder, and response bubble)
+    const modelMsgId = 'model-' + Date.now();
+    const modelMsgHTML = `
+      <div class="msg msg--model" id="${modelMsgId}">
+        <div class="msg__avatar">AI</div>
+        <div class="msg__bubble-container" style="flex: 1; max-width: 820px; display: flex; flex-direction: column; gap: 0.5rem;">
+          <!-- Live Thinking / Execution Timeline -->
+          <div class="execution-timeline" id="timeline-${modelMsgId}" style="display: none;">
+            <div class="timeline-node timeline-node--active" id="node-thinking-${modelMsgId}">
+              <div class="timeline-node__header">
+                <span class="timeline-node__bullet"></span>
+                <span class="timeline-node__title" id="node-thinking-title-${modelMsgId}">Analyzing strategy settings and pillars...</span>
+              </div>
+            </div>
+          </div>
+          <!-- Final Text Response bubble -->
+          <div class="msg__bubble" id="bubble-${modelMsgId}" style="min-height: 40px; border-bottom-left-radius: 4px; border: 1px solid var(--surface-2); background: var(--surface-1); color: var(--text-1);">
+            <div class="dots" style="display: flex; gap: 4px; align-items: center; padding: 0.5rem 0;">
+              <div class="dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--primary); animation: bounce 1.2s infinite;"></div>
+              <div class="dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--primary); animation: bounce 1.2s infinite; animation-delay: 0.2s;"></div>
+              <div class="dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--primary); animation: bounce 1.2s infinite; animation-delay: 0.4s;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    chatMessages.insertAdjacentHTML('beforeend', modelMsgHTML);
+    scrollToBottom();
+    
+    try {
+      const response = await fetch('/chat/message/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: message,
+          conversation_id: conversationId
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to connect to the content strategy stream.');
+      }
+      
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let activeText = '';
+      let activeTimelineNodeId = null;
+      
+      // Select elements
+      const timelineEl = document.getElementById(`timeline-${modelMsgId}`);
+      const bubbleEl = document.getElementById(`bubble-${modelMsgId}`);
+      const thinkingNodeEl = document.getElementById(`node-thinking-${modelMsgId}`);
+      const thinkingTitleEl = document.getElementById(`node-thinking-title-${modelMsgId}`);
+      
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop(); // keep the last partial chunk in buffer
+        
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const lines = part.split('\n');
+          let eventType = '';
+          let dataStr = '';
+          
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              eventType = line.replace('event:', '').trim();
+            } else if (line.startsWith('data:')) {
+              dataStr = line.replace('data:', '').trim();
+            }
+          }
+          
+          if (!eventType || !dataStr) continue;
+          
+          let data = {};
+          try {
+            data = JSON.parse(dataStr);
+          } catch(e) {}
+          
+          if (eventType === 'init') {
+            // Update conversation id and URL if new conversation
+            if (data.conversation_id) {
+              activeConvIdInput.value = data.conversation_id;
+              if (data.is_new) {
+                // Update header title
+                document.querySelector('.chat-header').textContent = data.title;
+                // Add conversation item to sidebar
+                const convList = document.getElementById('conv-list');
+                const sidebarItem = `
+                  <a href="/chat?id=${data.conversation_id}" class="conv-item conv-item--active" id="conv-${data.conversation_id}">
+                    <span class="conv-icon">💬</span>
+                    <span class="conv-title">${escapeHTML(data.title)}</span>
+                  </a>
+                `;
+                if (convList) {
+                  // Remove active class from previous items
+                  document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('conv-item--active'));
+                  convList.insertAdjacentHTML('afterbegin', sidebarItem);
+                }
+                // Push history state to browser
+                window.history.pushState(null, '', `/chat?id=${data.conversation_id}`);
+              }
+            }
+          } else if (eventType === 'thinking') {
+            // Show timeline container and update current thinking status
+            timelineEl.style.display = 'flex';
+            thinkingTitleEl.textContent = data.status || 'Thinking...';
+            scrollToBottom();
+          } else if (eventType === 'tool_start') {
+            // Create a timeline node for this tool call
+            timelineEl.style.display = 'flex';
+            const nodeUid = 'node-' + Math.random().toString(36).substr(2, 9);
+            activeTimelineNodeId = nodeUid;
+            
+            // Format nice human title
+            const humanTitle = getHumanToolTitle(data.name);
+            
+            const nodeHTML = `
+              <div class="timeline-node timeline-node--active" id="${nodeUid}">
+                <div class="timeline-node__header" onclick="toggleTimelineDetail(this)">
+                  <span class="timeline-node__bullet"></span>
+                  <span class="timeline-node__title">${escapeHTML(humanTitle)}</span>
+                  <span class="timeline-node__arrow">▼</span>
+                </div>
+                <div class="timeline-node__body">
+                  <div class="timeline-node__label">Arguments Passed</div>
+                  <pre class="timeline-node__code-block"><code>${escapeHTML(JSON.stringify(data.args, null, 2))}</code></pre>
+                </div>
+              </div>
+            `;
+            // Insert before the thinking indicator node
+            thinkingNodeEl.insertAdjacentHTML('beforebegin', nodeHTML);
+            scrollToBottom();
+          } else if (eventType === 'tool_end') {
+            // Complete active tool node
+            if (activeTimelineNodeId) {
+              const node = document.getElementById(activeTimelineNodeId);
+              if (node) {
+                node.classList.remove('timeline-node--active');
+                node.classList.add('timeline-node--success');
+                
+                // Add output payload inside body
+                const body = node.querySelector('.timeline-node__body');
+                let formattedResult = '';
+                try {
+                  const parsed = JSON.parse(data.result);
+                  formattedResult = JSON.stringify(parsed, null, 2);
+                } catch(e) {
+                  formattedResult = data.result;
+                }
+                
+                const resultHTML = `
+                  <div class="timeline-node__label" style="margin-top: 0.5rem;">Outcome Result</div>
+                  <pre class="timeline-node__code-block"><code>${escapeHTML(formattedResult)}</code></pre>
+                `;
+                body.insertAdjacentHTML('beforeend', resultHTML);
+                scrollToBottom();
+              }
+            }
+          } else if (eventType === 'text_chunk') {
+            // Remove dots on first chunk
+            const dots = bubbleEl.querySelector('.dots');
+            if (dots) dots.remove();
+            
+            // Append incoming streamed text chunk
+            activeText += data.chunk;
+            // Render text with standard helper formatting newlines/lists/bold tags
+            bubbleEl.innerHTML = formatTextContent(activeText);
+            scrollToBottom();
+          } else if (eventType === 'done') {
+            // Hide active thinking node
+            thinkingNodeEl.style.display = 'none';
+          } else if (eventType === 'error') {
+            const dots = bubbleEl.querySelector('.dots');
+            if (dots) dots.remove();
+            bubbleEl.innerHTML = `<span style="color:#ef4444; font-weight:600;">⚠️ Error: ${escapeHTML(data.error)}</span>`;
+          }
+        }
+      }
+    } catch(err) {
+      console.error(err);
+      const dots = bubbleEl.querySelector('.dots');
+      if (dots) dots.remove();
+      bubbleEl.innerHTML = `<span style="color:#ef4444; font-weight:600;">⚠️ Connection Error: Failed to stream agent execution.</span>`;
+    } finally {
+      sendBtn.disabled = false;
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
+  // Toggle accordion detail card click handler
+  function toggleTimelineDetail(headerEl) {
+    const node = headerEl.closest('.timeline-node');
+    if (node) {
+      node.classList.toggle('timeline-node--expanded');
+    }
+  }
+
+  // Escape HTML helper to prevent XSS
+  function escapeHTML(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Render text helper converting newlines, bold, list markers, and backticks into simple HTML structure
+  function formatTextContent(text) {
+    // 1. Monospace code blocks
+    let formatted = text.replace(/```([\s\S]*?)```/g, function(match, code) {
+      return `<pre class="timeline-node__code-block" style="margin: 0.5rem 0; max-height:none;"><code>${escapeHTML(code.trim())}</code></pre>`;
+    });
+    // 2. Bold text
+    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // 3. Bullet list items
+    formatted = formatted.replace(/^\s*-\s+(.*?)$/gm, '<li>$1</li>');
+    // Wrap consecutive list items in <ul>
+    formatted = formatted.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>');
+    // 4. Newline paragraph spacing
+    formatted = formatted.replace(/\n/g, '<br>');
+    return formatted;
+  }
+
+  // Clean Tool Titles helper
+  function getHumanToolTitle(name) {
+    const map = {
+      'tool_list_jobs': '🔍 Listing Existing Content Pipeline Jobs',
+      'tool_create_jobs': '📥 Bulk Scheduling Content Tasks',
+      'tool_edit_job': '📝 Updating Article Job Parameters',
+      'tool_delete_job': '🗑️ Removing Job from content pipeline',
+      'tool_generate_90_day_plan': '📅 Planning Rolling 90-Day Hub & Spoke Strategy',
+      'tool_approve_and_schedule_latest_plan': '🚀 Approving and Deploying Content Matrix'
+    };
+    return map[name] || `🔧 Executing tool: ${name}`;
+  }
 
   // Auto-scroll
   function scrollToBottom() {

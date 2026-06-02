@@ -1,0 +1,235 @@
+<div id="workflow-wrapper" {% if plan.status in ['planning', 'generating_clusters' ] %}
+  hx-get="/cluster-plans/{{ plan.id }}/status" hx-trigger="every 2s" hx-target="#workflow-container" {% endif %}>
+
+  <style>
+    .timeline-container {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+      position: relative;
+      padding-left: 2.5rem;
+      margin-top: 1rem;
+    }
+
+    .timeline-container::before {
+      content: '';
+      position: absolute;
+      left: 0.85rem;
+      top: 0.5rem;
+      bottom: 0.5rem;
+      width: 2px;
+      background: var(--border);
+      z-index: 1;
+    }
+
+    .timeline-node {
+      position: relative;
+    }
+
+    .timeline-badge {
+      position: absolute;
+      left: -2.5rem;
+      top: 0;
+      width: 1.8rem;
+      height: 1.8rem;
+      border-radius: 50%;
+      background: var(--bg);
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+      font-size: 0.9rem;
+      transition: all 0.3s;
+    }
+
+    .timeline-node.active .timeline-badge {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+
+    .timeline-node.complete .timeline-badge {
+      border-color: var(--success);
+      background: rgba(16, 185, 129, 0.1);
+    }
+
+    .timeline-node.failed .timeline-badge {
+      border-color: var(--danger);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .timeline-content {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      transition: all 0.2s;
+    }
+
+    .timeline-node.active .timeline-content {
+      border-color: var(--accent);
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .timeline-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      justify-content: space-between;
+    }
+
+    .timeline-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+  </style>
+
+  {% if plan.status == 'failed' %}
+  <div class="status-card status-card--error" style="margin-bottom: 2rem;">
+    <span class="status-icon">🚨</span>
+    <div>
+      <div class="status-card__title">Workflow Failed</div>
+      <div class="status-card__sub">{{ plan.error_message }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- GRID LAYOUT -->
+  <div
+    style="display: grid; grid-template-columns: {% if plan.status == 'keyword_review' %}1.3fr 1fr{% else %}1fr{% endif %}; gap: 2rem; align-items: start;">
+
+    <!-- LEFT: VERTICAL AGENTIC TIMELINE -->
+    <div class="timeline-container">
+
+      <!-- AGENT 1: KEYWORD RESEARCH & DISCOVERY -->
+      {% set a1_active = plan.status == 'planning' and plan.current_step == 'keyword_research' %}
+      {% set a1_complete = plan.status in ['keyword_review', 'generating_clusters', 'cluster_review', 'approved'] %}
+      <div
+        class="timeline-node {% if a1_active %}active{% elif a1_complete %}complete{% elif plan.status == 'failed' and not a1_complete %}failed{% endif %}">
+        <div class="timeline-badge">
+          {% if a1_active %}🤖{% elif a1_complete %}✅{% else %}🔎{% endif %}
+        </div>
+        <div class="timeline-content">
+          <div class="timeline-title">
+            <span>🔎 Keyword Research & Discovery Agent</span>
+            {% if a1_active %}
+            <span class="badge badge--running" style="font-size: 0.65rem;">Searching Trends...</span>
+            {% elif a1_complete %}
+            <span class="badge badge--approved" style="font-size: 0.65rem;">Complete</span>
+            {% endif %}
+          </div>
+          <div class="timeline-desc">
+            {% if a1_active %}
+            Analyzing organic competitors and crawling semantic search terms for theme <strong>"{{ plan.seed
+              }}"</strong>. Expanding search volume matrix and difficulty tables...
+            <div
+              style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--accent-light);">
+              <div class="spinner spinner--small"></div> Running SEO discovery algorithm...
+            </div>
+            {% elif a1_complete %}
+            Discovered candidate focus keywords and long-tail variations around seed topic.
+            Keyword review gate loaded with search volume and difficulty metadata.
+            <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--success); font-weight: 500;">
+              ✓ Discovered {{ plan.keywords | length }} focus search targets.
+            </div>
+            {% else %}
+            Awaiting campaign launch trigger to crawl organic competitor spaces and discover initial seed terms.
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENT 2: STRATEGY & CLUSTERING AGENT -->
+      {% set a2_active = plan.status == 'generating_clusters' and plan.current_step == 'strategy_generation' %}
+      {% set a2_complete = plan.status in ['cluster_review', 'approved'] %}
+      <div class="timeline-node {% if a2_active %}active{% elif a2_complete %}complete{% endif %}">
+        <div class="timeline-badge">
+          {% if a2_active %}🤖{% elif a2_complete %}✅{% else %}📊{% endif %}
+        </div>
+        <div class="timeline-content">
+          <div class="timeline-title">
+            <span>📊 Strategy & Clustering Agent</span>
+            {% if a2_active %}
+            <span class="badge badge--running" style="font-size: 0.65rem;">Building Hub & Spokes...</span>
+            {% elif a2_complete %}
+            <span class="badge badge--approved" style="font-size: 0.65rem;">Complete</span>
+            {% endif %}
+          </div>
+          <div class="timeline-desc">
+            {% if a2_active %}
+            Mapping confirmed keywords to {{ plan.num_pillars }} messaging pillars. Forming cornerstone Cornerstone
+            (Hub) guides and supporting Spokes. Calculating internal linking architectures...
+            <div
+              style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--accent-light);">
+              <div class="spinner spinner--small"></div> Invoking strategy AI...
+            </div>
+            {% elif a2_complete %}
+            Successfully generated a rolling content hub and spoke architecture based on approved keywords.
+            <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--success); font-weight: 500;">
+              ✓ Structured {{ plan.num_pillars }} core messaging pillars.
+            </div>
+            {% elif plan.status == 'keyword_review' %}
+            <div style="color: var(--warning); font-size: 0.8rem; font-weight: 500; margin-top: 0.25rem;">
+              ⏳ Awaiting keyword approval and target selection to build strategy matrices.
+            </div>
+            {% else %}
+            Organizes validated keywords into hierarchical cornerstone clusters. Plans internal link loops and title
+            variations.
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENT 3: SCHEDULING & OPTIMIZATION AGENT -->
+      {% set a3_active = plan.status == 'generating_clusters' and plan.current_step == 'scheduling' %}
+      {% set a3_complete = plan.status in ['cluster_review', 'approved'] %}
+      <div class="timeline-node {% if a3_active %}active{% elif a3_complete %}complete{% endif %}">
+        <div class="timeline-badge">
+          {% if a3_active %}🤖{% elif a3_complete %}✅{% else %}📅{% endif %}
+        </div>
+        <div class="timeline-content">
+          <div class="timeline-title">
+            <span>📅 Scheduling & Optimization Agent</span>
+            {% if a3_active %}
+            <span class="badge badge--running" style="font-size: 0.65rem;">Distributing Queue...</span>
+            {% elif a3_complete %}
+            <span class="badge badge--approved" style="font-size: 0.65rem;">Complete</span>
+            {% endif %}
+          </div>
+          <div class="timeline-desc">
+            {% if a3_active %}
+            Sequentially pacing approved cluster guides day-by-day across the calendar. Aligning start times and outlet
+            triggers...
+            <div
+              style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--accent-light);">
+              <div class="spinner spinner--small"></div> Distributing schedule...
+            </div>
+            {% elif a3_complete %}
+            Paced the cluster guides dynamically over a 90-day calendar period.
+            <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--success); font-weight: 500;">
+              ✓ Paced from <strong>{{ start_date }}</strong> to <strong>{{ end_date }}</strong>.
+            </div>
+            {% else %}
+            Maps planned topics to optimized calendar dates to avoid brand cannibalization.
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: DYNAMIC KEYWORD REVIEW SIDEBAR (ONLY DURING REVIEW GATE) -->
+    {% if plan.status == 'keyword_review' %}
+    <div id="keywords-list-container">
+      {% include "partials/cluster_keywords_list.html" %}
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>

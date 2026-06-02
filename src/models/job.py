@@ -14,6 +14,7 @@ class JobStatus(str, Enum):
     resuming = "resuming"           # keyword confirmed; about to restart writing
     pending_review = "pending_review"  # keyword gate (current_step=keyword_confirmation)
                                        # OR content review gate (current_step=None)
+    paused = "paused"               # manually paused by the user
     approved = "approved"
     scheduled = "scheduled"
     publishing = "publishing"
@@ -35,9 +36,14 @@ class ArticleJob(SQLModel, table=True):
 
     # ── Inputs ──────────────────────────────────────────────────────────
     topic: Optional[str] = Field(default=None)
+    core_messaging_pillar: Optional[str] = Field(default=None)
+    primary_keyword: Optional[str] = Field(default=None)
+    secondary_keywords: List[str] = Field(default=[], sa_column=Column(JSON))
+    evaluation_metrics: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     user_titles: List[str] = Field(default=[], sa_column=Column(JSON))
     competitor_urls: List[str] = Field(default=[], sa_column=Column(JSON))
     seed_keywords: List[str] = Field(default=[], sa_column=Column(JSON))
+    personalization_snippets: Optional[str] = Field(default=None, sa_column=Column(Text))
 
     # ── Queue & workflow control ─────────────────────────────────────────
     queue_position: Optional[int] = Field(default=None)   # 1 = next to run
@@ -102,7 +108,39 @@ class ArticleJob(SQLModel, table=True):
     )
     error_step: Optional[str] = Field(default=None)
 
+    # ── Cluster Plan Link ────────────────────────────────────────────────
+    cluster_plan_id: Optional[str] = Field(default=None, index=True)
+
     # ── Token usage ──────────────────────────────────────────────────────
     total_tokens_used: Optional[int] = Field(default=None)
     input_tokens_used: Optional[int] = Field(default=0)
     output_tokens_used: Optional[int] = Field(default=0)
+
+
+class ClusterPlan(SQLModel, table=True):
+    __tablename__ = "cluster_plans"
+
+    id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()), primary_key=True
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    seed: str = Field(index=True)
+    tasks: List[dict] = Field(default=[], sa_column=Column(JSON))
+    approved: bool = Field(default=False)
+
+    # Stateful multiagent content planning fields
+    status: str = Field(default="planning")  # planning, keyword_review, generating_clusters, cluster_review, approved, failed
+    current_step: Optional[str] = Field(default="keyword_research")  # keyword_research, strategy_generation, scheduling
+    keywords: List[dict] = Field(default=[], sa_column=Column(JSON))
+    num_pillars: int = Field(default=3)
+    spokes_per_pillar: int = Field(default=3)
+    publish_targets: List[str] = Field(default=["wordpress", "linkedin"], sa_column=Column(JSON))
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text))
+    
+    # Configurable keyword constraints
+    min_search_volume: int = Field(default=50)
+    max_search_volume: int = Field(default=1000)
+    max_difficulty: int = Field(default=40)
+    competitor_url: Optional[str] = Field(default=None)
+
+

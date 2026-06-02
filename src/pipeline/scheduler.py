@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import select
 
 from src.database import AsyncSessionLocal
-from src.models.job import ArticleJob, JobStatus
+from src.models.job import ArticleJob, ClusterPlan, JobStatus
 from src.models.settings import CompanySettings
 from src.pipeline.orchestrator import publish_job, run_pipeline
 
@@ -135,9 +135,32 @@ async def assign_queue_positions():
         logger.error(f"Error assigning queue positions: {e}")
 
 
+async def check_cluster_plans():
+    """
+    Retry any ClusterPlan stuck in 'generating_clusters' with step 'strategy_generation'.
+    This handles transient LLM timeouts from Stage 2 — resets happen automatically.
+    """
+    try:
+        from src.pipeline.cluster_orchestrator import run_cluster_plan_stage2
+        async with AsyncSessionLocal() as session:
+            stmt = select(ClusterPlan).where(
+                ClusterPlan.status == "generating_clusters",
+                ClusterPlan.current_step == "strategy_generation"
+            )
+            stalled = (await session.exec(stmt)).all()
+
+        for plan in stalled:
+            logger.info(f"Re-triggering Stage 2 for stalled cluster plan {plan.id} (LLM timeout retry)")
+            asyncio.create_task(run_cluster_plan_stage2(plan.id))
+
+    except Exception as e:
+        logger.error(f"Error in check_cluster_plans: {e}")
+
+
 # Schedule checks
 scheduler.add_job(check_scheduled_jobs, "interval", minutes=1)
 scheduler.add_job(check_pending_jobs, "interval", seconds=30)
+scheduler.add_job(check_cluster_plans, "interval", minutes=2)
 
 
 def start_scheduler():

@@ -1,0 +1,122 @@
+"""
+Style and Learning Memory Feedback Loop
+"""
+import os
+import logging
+from src.pipeline.llm import call_llm
+
+logger = logging.getLogger("style_memory")
+
+MEMORY_PATH = "data/agent_memory/style_learning_memory.md"
+
+def load_style_memory() -> str:
+    """Reads the persistent user style memory file if it exists."""
+    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
+    if os.path.exists(MEMORY_PATH):
+        try:
+            with open(MEMORY_PATH, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception as e:
+            logger.error(f"Failed to read style learning memory: {e}")
+    return ""
+
+async def record_style_feedback(feedback_text: str):
+    """
+    Analyzes direct chat prompt feedback from the user, extracts evergreen guidelines,
+    and merges them into the style memory file.
+    """
+    if not feedback_text or len(feedback_text.strip()) < 4:
+        return
+
+    prompt = f"""\
+You are an expert style analyzer and editor. The user has given direct feedback to an AI writing assistant:
+"{feedback_text}"
+
+Extract any general, evergreen style rules, phrasing preferences, tone constraints, or formatting patterns that should be applied to future articles. 
+Do not include rules specific to one singular topic (like "talk about seniors' screens"). Focus on general stylistic rules (like "Keep introductions under 3 sentences", "Avoid promotional exclamation marks", "Use UK spellings").
+
+Return ONLY a bulleted list of 1-2 concise rules. If the user feedback is not a general style rule (e.g. just asking for a specific link or specific typo fix), return nothing.
+"""
+    try:
+        rules, _ = await call_llm(prompt=prompt, tier="haiku")
+        rules = rules.strip()
+        if rules and "-" in rules:
+            await merge_and_save_rules(rules)
+    except Exception as e:
+        logger.error(f"Failed to record style feedback: {e}")
+
+async def record_edit_feedback(original_text: str, edited_text: str, topic: str):
+    """
+    Compares the original AI-generated article with the user's manual edits,
+    extracts stylistic/phrasing rules, and merges them into the style memory.
+    """
+    if not original_text or not edited_text:
+        return
+    
+    # Trim texts to prevent token excess but capture key styles
+    orig_snippet = original_text[:5000]
+    edit_snippet = edited_text[:5000]
+    
+    if orig_snippet.strip() == edit_snippet.strip():
+        return
+
+    prompt = f"""\
+You are an elite editorial auditor. A user has manually corrected/edited an AI-generated article about "{topic}".
+Compare the original draft snippets with the user's final edited draft to understand their writing style, phrasing preferences, and corrections.
+
+## Original AI Draft Snippet
+```markdown
+{orig_snippet}
+```
+
+## User's Edited Draft Snippet
+```markdown
+{edit_snippet}
+```
+
+## Task
+Analyze the differences. Identify tone preferences, phrasing improvements, spellings (e.g. UK vs US), formatting adjustments (e.g., bullet lists vs tables, paragraph lengths), and grammar changes.
+Extract 1-3 evergreen style rules or formatting guidelines that the AI should follow to write exactly like the user and avoid these mistakes in the future.
+Be highly specific and actionable (e.g., 'Use UK spellings like "organisation" instead of "organization"', 'Avoid ending paragraphs with rhetorical questions', 'Use standard bolding for key nouns', 'Prefer short sentences under 15 words').
+
+Return ONLY a bulleted list of 1-3 concise rules. Do not write introductory or concluding text.
+"""
+    try:
+        rules, _ = await call_llm(prompt=prompt, tier="haiku")
+        rules = rules.strip()
+        if rules and "-" in rules:
+            await merge_and_save_rules(rules)
+    except Exception as e:
+        logger.error(f"Failed to record edit feedback: {e}")
+
+async def merge_and_save_rules(new_rules_text: str):
+    """
+    Deduplicates and merges new rules into the existing style memory file using a quick LLM call.
+    """
+    current_memory = load_style_memory()
+    
+    prompt = f"""\
+You are an expert style librarian. Merge these newly discovered style rules into our existing user style guidelines, deduplicating them and keeping the list clean and organized.
+
+## Existing Guidelines
+{current_memory or 'None yet.'}
+
+## New Discovered Rules
+{new_rules_text}
+
+## Instructions
+- Combine overlapping rules.
+- Keep the list highly readable and actionable.
+- Limit the total list to a maximum of 15 high-impact, bulleted rules (prioritize the newest and most general rules).
+- Return ONLY the merged, clean bulleted list. Do not write introductory or concluding text.
+"""
+    try:
+        merged_text, _ = await call_llm(prompt=prompt, tier="haiku")
+        merged_text = merged_text.strip()
+        if merged_text:
+            os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
+            with open(MEMORY_PATH, "w", encoding="utf-8") as f:
+                f.write(merged_text)
+            logger.info("Successfully updated persistent user style memory.")
+    except Exception as e:
+        logger.error(f"Failed to merge and save rules: {e}")

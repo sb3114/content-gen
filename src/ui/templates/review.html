@@ -2,6 +2,60 @@
 {% block title %}Review: {{ job.topic }} — Content Engine{% endblock %}
 
 {% block content %}
+<style>
+  .editor-refining-wrapper {
+    position: relative;
+    transition: all 0.3s ease;
+  }
+  
+  .editor-refining-wrapper.refining {
+    pointer-events: none;
+  }
+  
+  .editor-refining-wrapper.refining textarea {
+    filter: blur(1.5px);
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.4) !important;
+  }
+  
+  /* Blinking overlay card */
+  .editor-refining-wrapper::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg-card);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    border-radius: var(--radius);
+    z-index: 10;
+  }
+  
+  .editor-refining-wrapper.refining::after {
+    content: "🔄 AI Agent Refining Content...";
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--primary);
+    text-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    opacity: 0.85;
+    visibility: visible;
+    animation: text-pulse 1.5s infinite ease-in-out;
+  }
+  
+  @keyframes text-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.97); }
+  }
+</style>
+
 <div class="page-header">
   <div>
     <h1 class="page-title review-title">
@@ -9,19 +63,28 @@
     </h1>
     <div class="review-meta">
       <span class="badge badge--{{ job.status.value }}">{{ job.status.value.replace('_', ' ') }}</span>
+      {% if job.core_messaging_pillar %}
+      <span class="badge"
+        style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); color: #818cf8;">
+        🎯 {{ job.core_messaging_pillar }}
+      </span>
+      {% endif %}
       <span class="meta-text">Created {{ job.created_at.strftime('%B %d, %Y at %H:%M') }}</span>
       {% if job.current_step %}
-        <span class="meta-text running-pulse">⟳ Running: {{ job.current_step }}</span>
+      <span class="meta-text running-pulse">⟳ Running: {{ job.current_step }}</span>
       {% endif %}
       {% if job.input_tokens_used or job.output_tokens_used %}
-        <span class="badge" id="token-badge" style="background-color: var(--bg-card); border: 1px solid var(--border-light); color: var(--text-dim); margin-left: auto;">
-          ⚡ Tokens: {{ "{:,}".format(job.input_tokens_used or 0) }} IN | {{ "{:,}".format(job.output_tokens_used or 0) }} OUT
-        </span>
+      <span class="badge" id="token-badge"
+        style="background-color: var(--bg-card); border: 1px solid var(--border-light); color: var(--text-dim); margin-left: auto;">
+        ⚡ Tokens: {{ "{:,}".format(job.input_tokens_used or 0) }} IN | {{ "{:,}".format(job.output_tokens_used or 0) }}
+        OUT
+      </span>
       {% endif %}
     </div>
   </div>
   <div style="display:flex; gap:0.5rem; align-items:center;">
-    <button onclick="document.getElementById('edit-panel').classList.toggle('hidden')" class="btn btn--ghost" type="button" title="Edit job settings">⚙ Edit</button>
+    <button onclick="document.getElementById('edit-panel').classList.toggle('hidden')" class="btn btn--ghost"
+      type="button" title="Edit job settings">⚙ Edit</button>
     <a href="/" class="btn btn--ghost">← Dashboard</a>
     <form action="/jobs/{{ job.id }}/delete" method="post" onsubmit="return confirm('Permanently delete this job?')">
       <button type="submit" class="btn btn--danger" title="Delete job">🗑 Delete</button>
@@ -31,7 +94,8 @@
 
 {# ── Edit Panel ───────────────────────────────────────────────────────────── #}
 <div id="edit-panel" class="hidden" style="margin-bottom: 1.5rem;">
-  <form action="/jobs/{{ job.id }}/edit" method="post" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-end;">
+  <form action="/jobs/{{ job.id }}/edit" method="post"
+    style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-end;">
     <div>
       <label class="form-label">📅 Scheduled Date/Time</label>
       <input type="datetime-local" name="scheduled_at" class="form-input"
@@ -42,64 +106,73 @@
       <label class="form-label">Publish Targets</label>
       <div style="display:flex;gap:1rem;margin-top:0.4rem;">
         <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;">
-          <input type="checkbox" name="publish_wordpress" value="true" {% if job.publish_wordpress %}checked{% endif %}> 🌐 WordPress
+          <input type="checkbox" name="publish_wordpress" value="true" {% if job.publish_wordpress %}checked{% endif %}>
+          🌐 WordPress
         </label>
         <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;">
-          <input type="checkbox" name="publish_linkedin" value="true" {% if job.publish_linkedin %}checked{% endif %}> 💼 LinkedIn
+          <input type="checkbox" name="publish_linkedin" value="true" {% if job.publish_linkedin %}checked{% endif %}>
+          💼 LinkedIn
         </label>
         <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;">
-          <input type="checkbox" name="publish_newsletter" value="true" {% if job.publish_newsletter %}checked{% endif %}> 📧 Newsletter
+          <input type="checkbox" name="publish_newsletter" value="true" {% if job.publish_newsletter %}checked{% endif
+            %}> 📧 Newsletter
         </label>
       </div>
     </div>
     {% if job.publish_newsletter and brevo_lists %}
-    <div style="width: 100%; margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);">
-      <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.5rem; display: block;">Newsletter Target Lists</label>
+    <div
+      style="width: 100%; margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);">
+      <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.5rem; display: block;">Newsletter Target
+        Lists</label>
       <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
         {% for list in brevo_lists %}
-          <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer;">
-            <input type="checkbox" name="newsletter_list_ids" value="{{ list.id }}" 
-              {% if list.id in (job.newsletter_list_ids or []) %}checked{% endif %}>
-            {{ list.name }}
-          </label>
+        <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer;">
+          <input type="checkbox" name="newsletter_list_ids" value="{{ list.id }}" {% if list.id in
+            (job.newsletter_list_ids or []) %}checked{% endif %}>
+          {{ list.name }}
+        </label>
         {% endfor %}
       </div>
     </div>
     {% endif %}
     <button type="submit" class="btn btn--primary">Save Changes</button>
-    <button type="button" class="btn btn--ghost" onclick="document.getElementById('edit-panel').classList.add('hidden')">Cancel</button>
+    <button type="button" class="btn btn--ghost"
+      onclick="document.getElementById('edit-panel').classList.add('hidden')">Cancel</button>
   </form>
 </div>
 
 {# ── Pipeline Diagram ────────────────────────────────────────────────────── #}
 <div class="pipeline">
   {% set steps = [
-      ('research', 'Research'),
-      ('planning', 'Planning'),
-      ('writing', 'Writing'),
+  ('research', 'Research'),
+  ('planning', 'Planning'),
+  ('writing', 'Writing'),
   ] %}
   {% if job.publish_linkedin %}
-    {% set _ = steps.append(('linkedin', 'Adapting LI')) %}
+  {% set _ = steps.append(('linkedin', 'Adapting LI')) %}
   {% endif %}
   {% if job.publish_newsletter %}
-    {% set _ = steps.append(('newsletter', 'Email Design')) %}
+  {% set _ = steps.append(('newsletter', 'Email Design')) %}
   {% endif %}
-  
+
   {% for key, label in steps %}
-    <div class="pipeline__node {% if job.current_step == key %}pipeline__node--active{% elif not job.current_step and job.status.value != 'failed' %}pipeline__node--done{% endif %}">
-      <div class="pipeline__circle"></div>
-      <span class="pipeline__label">{{ label }}</span>
-    </div>
-    <div class="pipeline__connector"></div>
+  <div
+    class="pipeline__node {% if job.current_step == key %}pipeline__node--active{% elif not job.current_step and job.status.value != 'failed' %}pipeline__node--done{% endif %}">
+    <div class="pipeline__circle"></div>
+    <span class="pipeline__label">{{ label }}</span>
+  </div>
+  <div class="pipeline__connector"></div>
   {% endfor %}
-  
-  <div class="pipeline__node {% if not job.current_step and job.status.value == 'pending_review' %}pipeline__node--active{% elif job.status.value in ['approved', 'publishing', 'published'] %}pipeline__node--done{% endif %}">
+
+  <div
+    class="pipeline__node {% if not job.current_step and job.status.value == 'pending_review' %}pipeline__node--active{% elif job.status.value in ['approved', 'publishing', 'published'] %}pipeline__node--done{% endif %}">
     <div class="pipeline__circle"></div>
     <span class="pipeline__label">Review/Refine</span>
   </div>
   <div class="pipeline__connector"></div>
-  
-  <div class="pipeline__node {% if job.status.value == 'publishing' %}pipeline__node--active{% elif job.status.value == 'published' %}pipeline__node--done{% endif %}">
+
+  <div
+    class="pipeline__node {% if job.status.value == 'publishing' %}pipeline__node--active{% elif job.status.value == 'published' %}pipeline__node--done{% endif %}">
     <div class="pipeline__circle"></div>
     <span class="pipeline__label">Publishing</span>
   </div>
@@ -107,44 +180,70 @@
 
 {# ── Status: Queued ────────────────────────────────────────────────────── #}
 {% if job.status.value == 'queued' %}
-<div class="status-card status-card--running"
-     hx-get="/jobs/{{ job.id }}/status"
-     hx-trigger="every 8s"
-     hx-swap="outerHTML">
-  <div class="spinner" style="opacity:0.5;"></div>
-  <div>
-    <p class="status-card__title">Queued — waiting for previous job to complete</p>
-    {% if job.queue_position %}
-      <p class="status-card__sub">#{{ job.queue_position }} in queue &middot; Pipeline starts automatically (10-min pacing)</p>
-    {% endif %}
+<div class="status-card status-card--running" hx-get="/jobs/{{ job.id }}/status" hx-trigger="every 8s"
+  hx-swap="outerHTML" style="display: flex; justify-content: space-between; align-items: center;">
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <div class="spinner" style="opacity:0.5;"></div>
+    <div>
+      <p class="status-card__title">Queued — waiting for previous job to complete</p>
+      {% if job.queue_position %}
+      <p class="status-card__sub">#{{ job.queue_position }} in queue &middot; Pipeline starts automatically (10-min
+        pacing)</p>
+      {% endif %}
+    </div>
   </div>
+  <form action="/jobs/{{ job.id }}/pause" method="post" style="margin: 0;">
+    <button type="submit" class="btn btn--danger" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">⏸ Pause</button>
+  </form>
 </div>
 {% endif %}
 
 {# ── Status: Running / Resuming ────────────────────────────────────────── #}
 {% if job.status.value in ['pending', 'running', 'resuming'] %}
-<div class="status-card status-card--running"
-     hx-get="/jobs/{{ job.id }}/status"
-     hx-trigger="every 4s"
-     hx-swap="outerHTML">
-  <div class="spinner"></div>
-  <div>
-    <p class="status-card__title">
-      {% if job.status.value == 'resuming' %}Writing article…{% else %}Pipeline running…{% endif %}
-    </p>
-    <p class="status-card__sub">Step: {{ job.current_step or 'starting' }}</p>
+<div class="status-card status-card--running" hx-get="/jobs/{{ job.id }}/status" hx-trigger="every 4s"
+  hx-swap="outerHTML" style="display: flex; justify-content: space-between; align-items: center;">
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <div class="spinner"></div>
+    <div>
+      <p class="status-card__title">
+        {% if job.status.value == 'resuming' %}Writing article…{% else %}Pipeline running…{% endif %}
+      </p>
+      <p class="status-card__sub">Step: {{ job.current_step or 'starting' }}</p>
+    </div>
   </div>
+  <form action="/jobs/{{ job.id }}/pause" method="post" style="margin: 0;">
+    <button type="submit" class="btn btn--danger" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">⏸ Pause</button>
+  </form>
+</div>
+{% endif %}
+
+{# ── Status: Paused ──────────────────────────────────────────────────────── #}
+{% if job.status.value == 'paused' %}
+<div class="status-card status-card--running"
+  style="border-color: var(--primary); background: rgba(99,102,241,0.05); display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <span style="font-size: 1.5rem;">⏸</span>
+    <div>
+      <p class="status-card__title" style="color: var(--text);">Job Paused</p>
+      <p class="status-card__sub">Paused at step: {{ job.current_step or 'queued' }}</p>
+    </div>
+  </div>
+  <form action="/jobs/{{ job.id }}/resume" method="post" style="margin: 0;">
+    <button type="submit" class="btn btn--primary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">▶ Resume</button>
+  </form>
 </div>
 {% endif %}
 
 {# ── Status: Keyword Confirmation Gate ──────────────────────────────────── #}
 {% if job.status.value == 'pending_review' and job.current_step == 'keyword_confirmation' %}
 <div style="margin-bottom: 1.5rem;">
-  <div style="display:flex; align-items:center; gap:0.75rem; padding: 0.75rem 1.25rem; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: var(--radius); margin-bottom: 1.5rem;">
+  <div
+    style="display:flex; align-items:center; gap:0.75rem; padding: 0.75rem 1.25rem; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: var(--radius); margin-bottom: 1.5rem;">
     <span style="font-size: 1.25rem;">🔑</span>
     <div>
       <strong style="color: #fbbf24;">Keyword Review Required</strong>
-      <span style="font-size: 0.85rem; color: var(--text-dim); margin-left: 0.5rem;">Research complete — confirm the focus keyword to start writing.</span>
+      <span style="font-size: 0.85rem; color: var(--text-dim); margin-left: 0.5rem;">Research complete — confirm the
+        focus keyword to start writing.</span>
     </div>
   </div>
   {% include "partials/keyword_review.html" %}
@@ -172,10 +271,10 @@
   <div>
     <p class="status-card__title">Published successfully!</p>
     {% if job.wp_post_url %}
-      <a href="{{ job.wp_post_url }}" target="_blank" class="pill-link">🌐 View WordPress Draft</a>
+    <a href="{{ job.wp_post_url }}" target="_blank" class="pill-link">🌐 View WordPress Draft</a>
     {% endif %}
     {% if job.linkedin_post_id %}
-      <span class="pill-link">💼 LinkedIn Post ID: {{ job.linkedin_post_id }}</span>
+    <span class="pill-link">💼 LinkedIn Post ID: {{ job.linkedin_post_id }}</span>
     {% endif %}
   </div>
 </div>
@@ -185,124 +284,159 @@
 {# Skip content review form when job is at keyword confirmation gate #}
 {% set is_keyword_gate = (job.status.value == 'pending_review' and job.current_step == 'keyword_confirmation') %}
 {% set is_editable = (job.status.value in ['pending_review', 'scheduled', 'approved'] and not is_keyword_gate) %}
-{% set has_content = (job.status.value not in ['pending', 'running', 'resuming', 'queued', 'failed'] and not is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
+{% set has_content = (job.status.value not in ['pending', 'running', 'resuming', 'queued', 'failed'] and not
+is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
 
 {% if has_content %}
 <form action="/jobs/{{ job.id }}/approve" method="post" id="review-form">
 
-    <div class="review-layout" style="display: flex; gap: 1.5rem; align-items: stretch;">
-      
-      {# Left column: Article ────────────────────────────────────── #}
-      <div class="review-main" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
-        
-        <div class="review-col">
-          <div class="section-header">
-            <h2 class="section-title">📝 Article</h2>
-            <span class="word-count" id="wc">calculating…</span>
-          </div>
+  <div class="review-layout" style="display: flex; gap: 1.5rem; align-items: stretch;">
 
-          <div class="form-group">
-            <label class="form-label">Title (H1)</label>
-            <input
-              name="reviewed_title"
-              type="text"
-              class="form-input"
-              value="{{ job.reviewed_title or (job.content_plan.chosen_title if job.content_plan else job.topic) }}"
-              {% if not is_editable %}readonly style="background: var(--bg-body); cursor: default; border-color: transparent;"{% endif %}
-            />
-          </div>
+    {# Left column: Article ────────────────────────────────────── #}
+    <div class="review-main" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
 
+      <div class="review-col">
+        <div class="section-header">
+          <h2 class="section-title">📝 Article</h2>
+          <span class="word-count" id="wc">calculating…</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Title (H1)</label>
+          <input name="reviewed_title" type="text" class="form-input"
+            value="{{ job.reviewed_title or (job.content_plan.chosen_title if job.content_plan else job.topic) }}" {% if
+            not is_editable %}readonly style="background: var(--bg-body); cursor: default; border-color: transparent;"
+            {% endif %} />
+        </div>
+
+        <div class="editor-refining-wrapper" id="article-refining-wrap">
           <div class="form-group">
-            <textarea
-              id="reviewed_markdown"
-              name="reviewed_markdown"
-              class="form-textarea form-textarea--tall"
-              oninput="updateWordCount(this)"
-              {% if not is_editable %}readonly style="background: var(--bg-body); cursor: default; border-color: transparent;"{% endif %}
-            >{{ job.reviewed_markdown or job.article_markdown or '' }}</textarea>
+            <textarea id="reviewed_markdown" name="reviewed_markdown" class="form-textarea form-textarea--tall"
+              oninput="updateWordCount(this)" {% if not is_editable %}readonly
+              style="background: var(--bg-body); cursor: default; border-color: transparent;" {% endif
+              %}>{{ job.reviewed_markdown or job.article_markdown or '' }}</textarea>
             {% if is_editable %}
-              <p class="form-hint">Edit directly. Markdown formatting will be converted to HTML on publish.</p>
+            <p class="form-hint">Edit directly. Markdown formatting will be converted to HTML on publish.</p>
             {% endif %}
           </div>
         </div>
+      </div>
 
-        {% if job.keyword_data and job.keyword_data.ok %}
-        <details class="detail-panel" open style="margin-bottom: 1rem; border: 1px solid var(--border-light); border-radius: var(--radius); overflow: hidden; background: var(--bg-card);">
-          <summary style="font-weight: 600; cursor: pointer; padding: 0.75rem 1rem; background: var(--bg-body); border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between;">
-            <span>🔍 5-Stage SEO Research &amp; Metrics</span>
-            <span style="font-size: 0.8rem; color: var(--text-dim); background: var(--border-light); padding: 0.2rem 0.5rem; border-radius: 4px;">UK / EU Targeted</span>
-          </summary>
-          
-          <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
-            
-            {# Chosen Keyword Card #}
-            {% if job.keyword_data.chosen_keyword %}
-            <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(99, 102, 241, 0.08) 100%); border: 1px solid rgba(16, 185, 129, 0.2); padding: 1rem; border-radius: 8px;">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-                <div>
-                  <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #10b981; font-weight: 700; display: block; margin-bottom: 0.25rem;">🏆 Focus Golden Ratio Keyword</span>
-                  <h3 style="font-size: 1.5rem; font-weight: 800; color: var(--text); margin: 0; text-shadow: 0 0 10px rgba(16, 185, 129, 0.1);">{{ job.keyword_data.chosen_keyword.keyword }}</h3>
-                </div>
-                <div style="text-align: right;">
-                  <span style="font-size: 0.75rem; color: var(--text-dim); display: block; margin-bottom: 0.25rem;">Target Location</span>
-                  <span style="background: var(--bg-body); border: 1px solid var(--border); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; color: var(--text);">United Kingdom (2826)</span>
+      {% if job.personalization_snippets %}
+      <details class="detail-panel" open
+        style="margin-bottom: 1rem; border: 1px solid rgba(var(--primary-rgb), 0.25); border-radius: var(--radius); overflow: hidden; background: var(--bg-card);">
+        <summary
+          style="font-weight: 600; cursor: pointer; padding: 0.75rem 1rem; background: var(--bg-body); border-bottom: 1px solid rgba(var(--primary-rgb), 0.1); display: flex; align-items: center; justify-content: space-between;">
+          <span>✏️ Personalization Snippets &amp; Ideas</span>
+          <span
+            style="font-size: 0.8rem; color: var(--text-dim); background: var(--border-light); padding: 0.2rem 0.5rem; border-radius: 4px;">User
+            Provided</span>
+        </summary>
+        <div
+          style="padding: 1.25rem; font-size: 0.875rem; line-height: 1.55; color: var(--text-dim); white-space: pre-wrap;">
+          {{ job.personalization_snippets }}</div>
+      </details>
+      {% endif %}
+
+      {% if job.keyword_data and job.keyword_data.ok %}
+      <details class="detail-panel" open
+        style="margin-bottom: 1rem; border: 1px solid var(--border-light); border-radius: var(--radius); overflow: hidden; background: var(--bg-card);">
+        <summary
+          style="font-weight: 600; cursor: pointer; padding: 0.75rem 1rem; background: var(--bg-body); border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between;">
+          <span>🔍 5-Stage SEO Research &amp; Metrics</span>
+          <span
+            style="font-size: 0.8rem; color: var(--text-dim); background: var(--border-light); padding: 0.2rem 0.5rem; border-radius: 4px;">UK
+            / EU Targeted</span>
+        </summary>
+
+        <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
+
+          {# Chosen Keyword Card #}
+          {% if job.keyword_data.chosen_keyword %}
+          <div
+            style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(99, 102, 241, 0.08) 100%); border: 1px solid rgba(16, 185, 129, 0.2); padding: 1rem; border-radius: 8px;">
+            <div
+              style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+              <div>
+                <span
+                  style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #10b981; font-weight: 700; display: block; margin-bottom: 0.25rem;">🏆
+                  Focus Golden Ratio Keyword</span>
+                <h3
+                  style="font-size: 1.5rem; font-weight: 800; color: var(--text); margin: 0; text-shadow: 0 0 10px rgba(16, 185, 129, 0.1);">
+                  {{ job.keyword_data.chosen_keyword.keyword }}</h3>
+              </div>
+              <div style="text-align: right;">
+                <span style="font-size: 0.75rem; color: var(--text-dim); display: block; margin-bottom: 0.25rem;">Target
+                  Location</span>
+                <span
+                  style="background: var(--bg-body); border: 1px solid var(--border); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; color: var(--text);">United
+                  Kingdom (2826)</span>
+              </div>
+            </div>
+
+            <div
+              style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; background: rgba(0,0,0,0.15); padding: 0.75rem; border-radius: 6px; margin-bottom: 0.75rem; border: 1px solid var(--border);">
+              <div>
+                <span style="font-size: 0.7rem; color: var(--text-dim); display: block; margin-bottom: 0.15rem;">UK
+                  Monthly Volume</span>
+                <strong style="font-size: 1.15rem; color: var(--text);">{{
+                  "{:,}".format(job.keyword_data.chosen_keyword.search_volume or 0) }}</strong>
+              </div>
+              <div>
+                <span style="font-size: 0.7rem; color: var(--text-dim); display: block; margin-bottom: 0.15rem;">Keyword
+                  Difficulty (KD)</span>
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <strong style="font-size: 1.15rem; color: #10b981;">{{
+                    job.keyword_data.chosen_keyword.keyword_difficulty or 0 }}</strong>
+                  <span
+                    style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.65rem; padding: 0.1rem 0.3rem; border-radius: 3px; font-weight: 600;">KD
+                    &lt;= 35</span>
                 </div>
               </div>
-              
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; background: rgba(0,0,0,0.15); padding: 0.75rem; border-radius: 6px; margin-bottom: 0.75rem; border: 1px solid var(--border);">
-                <div>
-                  <span style="font-size: 0.7rem; color: var(--text-dim); display: block; margin-bottom: 0.15rem;">UK Monthly Volume</span>
-                  <strong style="font-size: 1.15rem; color: var(--text);">{{ "{:,}".format(job.keyword_data.chosen_keyword.search_volume or 0) }}</strong>
-                </div>
-                <div>
-                  <span style="font-size: 0.7rem; color: var(--text-dim); display: block; margin-bottom: 0.15rem;">Keyword Difficulty (KD)</span>
-                  <div style="display: flex; align-items: center; gap: 0.35rem;">
-                    <strong style="font-size: 1.15rem; color: #10b981;">{{ job.keyword_data.chosen_keyword.keyword_difficulty or 0 }}</strong>
-                    <span style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.65rem; padding: 0.1rem 0.3rem; border-radius: 3px; font-weight: 600;">KD &lt;= 35</span>
-                  </div>
-                </div>
-                <div>
-                  <span style="font-size: 0.7rem; color: var(--text-dim); display: block; margin-bottom: 0.15rem;">90-Day Trend Trajectory</span>
-                  <strong style="font-size: 1.15rem; color: {% if (job.keyword_data.chosen_keyword.trend_slope or 0.0) > 0.0 %}#10b981{% elif (job.keyword_data.chosen_keyword.trend_slope or 0.0) < -0.2 %}#f59e0b{% else %}var(--text-dim){% endif %};">
-                    {% if (job.keyword_data.chosen_keyword.trend_slope or 0.0) > 0.0 %}📈 +{% elif (job.keyword_data.chosen_keyword.trend_slope or 0.0) < 0.0 %}📉 {% else %}➡️ {% endif %}{{ "{:.3f}".format(job.keyword_data.chosen_keyword.trend_slope or 0.0) }}
-                  </strong>
-                </div>
+              <div>
+                <span style="font-size: 0.7rem; color: var(--text-dim); display: block; margin-bottom: 0.15rem;">90-Day
+                  Trend Trajectory</span>
+                <strong
+                  style="font-size: 1.15rem; color: {% if (job.keyword_data.chosen_keyword.trend_slope or 0.0) > 0.0 %}#10b981{% elif (job.keyword_data.chosen_keyword.trend_slope or 0.0) < -0.2 %}#f59e0b{% else %}var(--text-dim){% endif %};">
+                  {% if (job.keyword_data.chosen_keyword.trend_slope or 0.0) > 0.0 %}📈 +{% elif
+                  (job.keyword_data.chosen_keyword.trend_slope or 0.0) < 0.0 %}📉 {% else %}➡️ {% endif %}{{ "{:.3f}"
+                    .format(job.keyword_data.chosen_keyword.trend_slope or 0.0) }} </strong>
               </div>
-              
-              {% if job.keyword_data.chosen_keyword.rationale %}
-              <div style="font-size: 0.85rem; line-height: 1.45; color: var(--text-dim); background: rgba(0,0,0,0.1); padding: 0.75rem; border-radius: 6px; border-left: 3px solid #10b981;">
-                <strong>Chief SEO Strategist AI Rationale:</strong> {{ job.keyword_data.chosen_keyword.rationale }}
-              </div>
-              {% endif %}
             </div>
             {% endif %}
-            
+
             {# Competitor and Page Discovery Section #}
             {% if job.keyword_data.discovery_meta %}
             <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 1rem; font-size: 0.85rem;">
               <div>
-                <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text); font-weight: 600;">🔍 Discovered Competitors (Stage 1)</h4>
-                <ul style="margin: 0; padding-left: 1.15rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 0.25rem;">
+                <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text); font-weight: 600;">🔍
+                  Discovered Competitors (Stage 1)</h4>
+                <ul
+                  style="margin: 0; padding-left: 1.15rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 0.25rem;">
                   {% for domain in job.keyword_data.discovery_meta.domains %}
-                    <li><strong style="color: var(--text);">{{ domain }}</strong></li>
+                  <li><strong style="color: var(--text);">{{ domain }}</strong></li>
                   {% endfor %}
                 </ul>
               </div>
               <div>
-                <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text); font-weight: 600;">🔗 Top Crawled Competitor Pages</h4>
+                <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text); font-weight: 600;">🔗 Top
+                  Crawled Competitor Pages</h4>
                 <div style="display: flex; flex-direction: column; gap: 0.35rem; max-height: 80px; overflow-y: auto;">
                   {% for url in job.keyword_data.discovery_meta.urls %}
-                    <a href="{{ url }}" target="_blank" style="color: #6366f1; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 0.8rem;" title="{{ url }}">📄 {{ url }}</a>
+                  <a href="{{ url }}" target="_blank"
+                    style="color: #6366f1; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 0.8rem;"
+                    title="{{ url }}">📄 {{ url }}</a>
                   {% endfor %}
                 </div>
               </div>
             </div>
             {% endif %}
-            
+
             {# Surviving Candidates Table #}
             {% if job.keyword_data.surviving_keywords %}
             <div>
-              <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text); font-weight: 600;">🏆 Top Surviving Candidate Keywords (Stage 4 &amp; 5)</h4>
+              <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--text); font-weight: 600;">🏆 Top
+                Surviving Candidate Keywords (Stage 4 &amp; 5)</h4>
               <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 6px;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem;">
                   <thead>
@@ -315,19 +449,23 @@
                   </thead>
                   <tbody>
                     {% for kw in job.keyword_data.surviving_keywords[:8] %}
-                    <tr style="border-bottom: 1px solid var(--border); background: {% if kw.keyword == job.keyword_data.chosen_keyword.keyword %}rgba(16, 185, 129, 0.06){% else %}transparent{% endif %};">
-                      <td style="padding: 0.5rem 0.75rem; font-weight: {% if kw.keyword == job.keyword_data.chosen_keyword.keyword %}bold{% else %}normal{% endif %}; color: {% if kw.keyword == job.keyword_data.chosen_keyword.keyword %}var(--text){% else %}var(--text-dim){% endif %};">
+                    <tr
+                      style="border-bottom: 1px solid var(--border); background: {% if kw.keyword == job.keyword_data.chosen_keyword.keyword %}rgba(16, 185, 129, 0.06){% else %}transparent{% endif %};">
+                      <td
+                        style="padding: 0.5rem 0.75rem; font-weight: {% if kw.keyword == job.keyword_data.chosen_keyword.keyword %}bold{% else %}normal{% endif %}; color: {% if kw.keyword == job.keyword_data.chosen_keyword.keyword %}var(--text){% else %}var(--text-dim){% endif %};">
                         {% if kw.keyword == job.keyword_data.chosen_keyword.keyword %}★ {% endif %}{{ kw.keyword }}
                       </td>
-                      <td style="padding: 0.5rem 0.75rem; color: var(--text-dim);">{{ "{:,}".format(kw.search_volume or 0) }}</td>
+                      <td style="padding: 0.5rem 0.75rem; color: var(--text-dim);">{{ "{:,}".format(kw.search_volume or
+                        0) }}</td>
                       <td style="padding: 0.5rem 0.75rem;">
-                        <span style="background: {% if kw.keyword_difficulty <= 15 %}rgba(16, 185, 129, 0.15){% elif kw.keyword_difficulty <= 35 %}rgba(245, 158, 11, 0.15){% else %}rgba(239, 68, 68, 0.15){% endif %}; color: {% if kw.keyword_difficulty <= 15 %}#10b981{% elif kw.keyword_difficulty <= 35 %}#f59e0b{% else %}#ef4444{% endif %}; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: 600;">
+                        <span
+                          style="background: {% if kw.keyword_difficulty <= 15 %}rgba(16, 185, 129, 0.15){% elif kw.keyword_difficulty <= 35 %}rgba(245, 158, 11, 0.15){% else %}rgba(239, 68, 68, 0.15){% endif %}; color: {% if kw.keyword_difficulty <= 15 %}#10b981{% elif kw.keyword_difficulty <= 35 %}#f59e0b{% else %}#ef4444{% endif %}; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: 600;">
                           {{ kw.keyword_difficulty or 0 }}
                         </span>
                       </td>
                       <td style="padding: 0.5rem 0.75rem; color: var(--text-dim);">
-                        {% if (kw.trend_slope or 0.0) > 0.0 %}📈 +{% elif (kw.trend_slope or 0.0) < 0.0 %}📉 {% else %}➡️ {% endif %}{{ "{:.3f}".format(kw.trend_slope or 0.0) }}
-                      </td>
+                        {% if (kw.trend_slope or 0.0) > 0.0 %}📈 +{% elif (kw.trend_slope or 0.0) < 0.0 %}📉 {% else
+                          %}➡️ {% endif %}{{ "{:.3f}" .format(kw.trend_slope or 0.0) }} </td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -335,126 +473,125 @@
               </div>
             </div>
             {% endif %}
-            
+
           </div>
-        </details>
-        {% endif %}
+      </details>
+      {% endif %}
 
-        {% if job.content_plan %}
-        <details class="detail-panel">
-          <summary>📊 Content Plan</summary>
-          <div class="plan-grid">
-            <div><strong>Focus Keyword:</strong> {{ job.content_plan.focus_keyword }}</div>
-            <div><strong>Tone:</strong> {{ job.content_plan.tone }}</div>
-            <div><strong>Audience:</strong> {{ job.content_plan.target_audience }}</div>
-            <div><strong>Word Target:</strong> {{ job.content_plan.word_count_target }}</div>
-            <div><strong>Meta Desc:</strong> {{ job.content_plan.meta_description }}</div>
-            <div><strong>Secondary KWs:</strong> {{ job.content_plan.secondary_keywords | join(', ') }}</div>
-          </div>
-        </details>
-        {% endif %}
+      {% if job.content_plan %}
+      <details class="detail-panel">
+        <summary>📊 Content Plan</summary>
+        <div class="plan-grid">
+          <div><strong>Focus Keyword:</strong> {{ job.content_plan.focus_keyword }}</div>
+          <div><strong>Tone:</strong> {{ job.content_plan.tone }}</div>
+          <div><strong>Audience:</strong> {{ job.content_plan.target_audience }}</div>
+          <div><strong>Word Target:</strong> {{ job.content_plan.word_count_target }}</div>
+          <div><strong>Meta Desc:</strong> {{ job.content_plan.meta_description }}</div>
+          <div><strong>Secondary KWs:</strong> {{ job.content_plan.secondary_keywords | join(', ') }}</div>
+        </div>
+      </details>
+      {% endif %}
 
-      </div>
+    </div>
 
-      {# Right column: LinkedIn & Chat Sidebar ────────────────────────────────────── #}
-      <div class="review-sidebar" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
-        
-        {% if job.publish_newsletter %}
-        <div class="review-col">
-          <div class="section-header">
-            <h2 class="section-title">📧 Email Newsletter</h2>
-            <span class="badge">{{ job.newsletter_type }}</span>
-          </div>
+    {# Right column: LinkedIn & Chat Sidebar ────────────────────────────────────── #}
+    <div class="review-sidebar" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
 
-          <div class="form-group">
-            <label class="form-label">Email Subject</label>
-            <input
-              name="reviewed_newsletter_subject"
-              type="text"
-              class="form-input"
-              value="{{ job.reviewed_newsletter_subject or job.newsletter_subject or '' }}"
-              {% if not is_editable %}readonly style="background: var(--bg-body); cursor: default; border-color: transparent;"{% endif %}
-            />
-          </div>
+      {% if job.publish_newsletter %}
+      <div class="review-col">
+        <div class="section-header">
+          <h2 class="section-title">📧 Email Newsletter</h2>
+          <span class="badge">{{ job.newsletter_type }}</span>
+        </div>
 
+        <div class="form-group">
+          <label class="form-label">Email Subject</label>
+          <input name="reviewed_newsletter_subject" type="text" class="form-input"
+            value="{{ job.reviewed_newsletter_subject or job.newsletter_subject or '' }}" {% if not is_editable
+            %}readonly style="background: var(--bg-body); cursor: default; border-color: transparent;" {% endif %} />
+        </div>
+
+        <div class="editor-refining-wrapper" id="newsletter-refining-wrap">
           <div class="form-group">
             <label class="form-label">Email Content (HTML)</label>
-            <textarea
-              id="newsletter-editor"
-              name="reviewed_newsletter_html"
-              class="form-textarea form-textarea--tall"
+            <textarea id="newsletter-editor" name="reviewed_newsletter_html" class="form-textarea form-textarea--tall"
               style="min-height: 300px; font-family: monospace; font-size: 0.85rem; {% if not is_editable %}background: var(--bg-body); cursor: default; border-color: transparent;{% endif %}"
-              {% if not is_editable %}readonly{% endif %}
-            >{{ job.reviewed_newsletter_html or job.newsletter_html or '' }}</textarea>
+              {% if not is_editable %}readonly{% endif
+              %}>{{ job.reviewed_newsletter_html or job.newsletter_html or '' }}</textarea>
             {% if is_editable %}
-              <p class="form-hint">HTML content for Brevo campaign. Basic tags are recommended.</p>
+            <p class="form-hint">HTML content for Brevo campaign. Basic tags are recommended.</p>
             {% endif %}
           </div>
         </div>
-        {% endif %}
+      </div>
+      {% endif %}
 
-        {% if job.publish_linkedin %}
-        <div class="review-col">
-          <div class="section-header">
-            <h2 class="section-title">💼 LinkedIn Post</h2>
-            <span class="char-count" id="li-cc">0 chars</span>
-          </div>
+      {% if job.publish_linkedin %}
+      <div class="review-col">
+        <div class="section-header">
+          <h2 class="section-title">💼 LinkedIn Post</h2>
+          <span class="char-count" id="li-cc">0 chars</span>
+        </div>
 
+        <div class="editor-refining-wrapper" id="linkedin-refining-wrap">
           <div class="form-group">
-            <textarea
-              id="linkedin-editor"
-              name="reviewed_linkedin"
-              class="form-textarea form-textarea--tall"
+            <textarea id="linkedin-editor" name="reviewed_linkedin" class="form-textarea form-textarea--tall"
               style="min-height: 200px; {% if not is_editable %}background: var(--bg-body); cursor: default; border-color: transparent;{% endif %}"
-              oninput="updateCharCount(this)"
-              {% if not is_editable %}readonly{% endif %}
-            >{{ job.reviewed_linkedin or job.linkedin_post or '' }}</textarea>
+              oninput="updateCharCount(this)" {% if not is_editable %}readonly{% endif
+              %}>{{ job.reviewed_linkedin or job.linkedin_post or '' }}</textarea>
             {% if is_editable %}
-              <p class="form-hint">LinkedIn sweet spot: 1,200–1,500 characters.</p>
+            <p class="form-hint">LinkedIn sweet spot: 1,200–1,500 characters.</p>
             {% endif %}
           </div>
         </div>
-        {% endif %}
+      </div>
+      {% endif %}
 
-        <div class="chat-box" style="flex: 1; display: flex; flex-direction: column; position: sticky; top: 80px; height: calc(100vh - 120px);">
-          <div class="chat-box__header">AI Editor Chat</div>
-          <div id="chat-messages" class="chat-box__messages" style="flex: 1; overflow-y: auto; max-height: none;">
-              {% for msg in job.chat_history %}
-                  <div class="chat-bubble chat-bubble--{{ msg.role }}">
-                      <div class="chat-bubble__content">{{ msg.content }}</div>
-                  </div>
-              {% endfor %}
+      <div class="chat-box"
+        style="flex: 1; display: flex; flex-direction: column; position: sticky; top: 80px; height: calc(100vh - 120px);">
+        <div class="chat-box__header">AI Editor Chat</div>
+        <div id="chat-messages" class="chat-box__messages" style="flex: 1; overflow-y: auto; max-height: none;">
+          {% for msg in job.chat_history %}
+          <div class="chat-bubble chat-bubble--{{ msg.role }}">
+            <div class="chat-bubble__content">{{ msg.content }}</div>
           </div>
-          {% if is_editable %}
-          <div class="chat-box__input">
-            <input type="text" name="user_prompt" id="chat_input" class="form-input" placeholder="Ask AI to modify..."
-                   hx-post="/jobs/{{ job.id }}/refine" hx-target="#chat-messages" hx-swap="outerHTML" hx-indicator="#chat-loading" hx-trigger="keyup[key=='Enter']" hx-params="user_prompt">
-            <button type="button" class="btn btn--primary" style="margin-top: 0.5rem; width: 100%; justify-content: center;"
-                    hx-post="/jobs/{{ job.id }}/refine" hx-target="#chat-messages" hx-swap="outerHTML" hx-indicator="#chat-loading" hx-params="user_prompt" hx-include="#chat_input">
-              Send 🚀
-            </button>
-            <div id="chat-loading" class="htmx-indicator spinner spinner--small" style="margin: 0.5rem auto 0; display: none;"></div>
-          </div>
-          {% endif %}
+          {% endfor %}
         </div>
-
+        {% if is_editable %}
+        <div class="chat-box__input">
+          <input type="text" name="user_prompt" id="chat_input" class="form-input" placeholder="Ask AI to modify..."
+            hx-post="/jobs/{{ job.id }}/refine" hx-target="#chat-messages" hx-swap="outerHTML"
+            hx-indicator="#chat-loading" hx-trigger="keyup[key=='Enter']" hx-params="user_prompt">
+          <button type="button" class="btn btn--primary"
+            style="margin-top: 0.5rem; width: 100%; justify-content: center;" hx-post="/jobs/{{ job.id }}/refine"
+            hx-target="#chat-messages" hx-swap="outerHTML" hx-indicator="#chat-loading" hx-params="user_prompt"
+            hx-include="#chat_input">
+            Send 🚀
+          </button>
+          <div id="chat-loading" class="htmx-indicator spinner spinner--small"
+            style="margin: 0.5rem auto 0; display: none;"></div>
+        </div>
+        {% endif %}
       </div>
 
-    </div> <!-- End review-layout -->
+    </div>
+
+  </div> <!-- End review-layout -->
 
   {% if is_editable %}
   <div class="form-actions form-actions--sticky">
     {% if job.status.value == 'pending_review' %}
-      <button type="submit" formaction="/jobs/{{ job.id }}/reject" class="btn btn--ghost" onclick="return confirm('Reject this article?')">
-        ✕ Reject
-      </button>
-      <button type="submit" class="btn btn--primary btn--large">
-        ✓ Approve &amp; Publish
-      </button>
+    <button type="submit" formaction="/jobs/{{ job.id }}/reject" class="btn btn--ghost"
+      onclick="return confirm('Reject this article?')">
+      ✕ Reject
+    </button>
+    <button type="submit" class="btn btn--primary btn--large">
+      ✓ Approve &amp; Publish
+    </button>
     {% else %}
-      <button type="submit" formaction="/jobs/{{ job.id }}/save_content" class="btn btn--primary btn--large">
-        💾 Save Content Changes
-      </button>
+    <button type="submit" formaction="/jobs/{{ job.id }}/save_content" class="btn btn--primary btn--large">
+      💾 Save Content Changes
+    </button>
     {% endif %}
   </div>
   {% endif %}
@@ -471,11 +608,11 @@
   }
   // Init on load
   const art = document.getElementById('reviewed_markdown');
-  const li  = document.getElementById('linkedin-editor');
+  const li = document.getElementById('linkedin-editor');
   if (art) updateWordCount(art);
-  if (li)  updateCharCount(li);
+  if (li) updateCharCount(li);
 
-  document.body.addEventListener('htmx:beforeRequest', function(evt) {
+  document.body.addEventListener('htmx:beforeRequest', function (evt) {
     if (evt.detail.elt.id === 'chat_input' || evt.detail.elt.hasAttribute('hx-include')) {
       const input = document.getElementById('chat_input');
       const msgs = document.getElementById('chat-messages');
@@ -489,14 +626,31 @@
           msgs.appendChild(bubble);
           setTimeout(() => msgs.scrollTop = msgs.scrollHeight, 10);
         }
+        
+        // Trigger blinking refining state overlays on all editors
+        const artWrap = document.getElementById('article-refining-wrap');
+        const newsWrap = document.getElementById('newsletter-refining-wrap');
+        const liWrap = document.getElementById('linkedin-refining-wrap');
+        if (artWrap) artWrap.classList.add('refining');
+        if (newsWrap) newsWrap.classList.add('refining');
+        if (liWrap) liWrap.classList.add('refining');
+
         // Clear input immediately so user doesn't wait
         setTimeout(() => input.value = '', 10);
       }
     }
   });
 
-  document.body.addEventListener('htmx:afterRequest', function(evt) {
+  document.body.addEventListener('htmx:afterRequest', function (evt) {
     if (evt.detail.elt.id === 'chat_input' || evt.detail.elt.hasAttribute('hx-include')) {
+      // Remove blinking refining overlays
+      const artWrap = document.getElementById('article-refining-wrap');
+      const newsWrap = document.getElementById('newsletter-refining-wrap');
+      const liWrap = document.getElementById('linkedin-refining-wrap');
+      if (artWrap) artWrap.classList.remove('refining');
+      if (newsWrap) newsWrap.classList.remove('refining');
+      if (liWrap) liWrap.classList.remove('refining');
+
       // scroll to bottom again after server responds
       const msgs = document.getElementById('chat-messages');
       if (msgs) {

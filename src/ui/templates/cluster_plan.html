@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}Autonomous Content Plan — Content Engine{% endblock %}
+
+{% block extra_head %}
+<style>
+  .cluster-meta-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .meta-label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .meta-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .cluster-preview-section {
+    margin-top: 3rem;
+    border-top: 1px solid var(--border);
+    padding-top: 2rem;
+  }
+
+  .pillar-badge {
+    background: var(--accent-glow);
+    color: var(--accent-light);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .hub-badge {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .spoke-badge {
+    background: rgba(59, 130, 246, 0.1);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .metric-chip {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Autonomous Content Plan</h1>
+    <p class="page-subtitle">Seed Theme: <strong>"{{ plan.seed }}"</strong></p>
+  </div>
+  <div>
+    <span class="badge 
+      {% if plan.status == 'approved' %}badge--approved
+      {% elif plan.status == 'failed' %}badge--failed
+      {% elif plan.status in ['planning', 'generating_clusters'] %}badge--running
+      {% else %}badge--pending_review{% endif %} btn--large" style="padding: 0.4rem 1rem; font-size: 0.85rem;">
+      ✦ {{ plan.status | replace('_', ' ') | upper }}
+    </span>
+  </div>
+</div>
+
+<!-- Plan Strategy Parameters Meta -->
+<div class="cluster-meta-card">
+  <div style="display: flex; gap: 2.5rem; flex-wrap: wrap;">
+    <div class="meta-item">
+      <span class="meta-label">Created At</span>
+      <span class="meta-value">{{ plan.created_at.strftime("%b %d, %Y at %H:%M") }}</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Pillars</span>
+      <span class="meta-value">Pillar Hubs: {{ plan.num_pillars }} | Spokes per Hub: {{ plan.spokes_per_pillar }}</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Total Articles</span>
+      <span class="meta-value">
+        {% if plan.tasks %}{{ plan.tasks | length }} articles{% else %}Awaiting generation...{% endif %}
+      </span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Outlets</span>
+      <span class="meta-value" style="display: flex; gap: 0.4rem; align-items: center; margin-top: 0.15rem;">
+        {% for target in plan.publish_targets %}
+        <span
+          style="font-size: 0.75rem; background: var(--bg-hover); border: 1px solid var(--border); padding: 0.15rem 0.5rem; border-radius: 4px; color: var(--text-muted);">
+          {% if target == 'wordpress' %}🌐 WordPress{% else %}💼 LinkedIn{% endif %}
+        </span>
+        {% endfor %}
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Workflow Step container with active HTMX Polling -->
+<div id="workflow-container">
+  {% include "partials/cluster_workflow_state.html" %}
+</div>
+
+<!-- Hub & Spoke Cluster Accordion Panel (only visible when generated) -->
+{% if plan.status in ['cluster_review', 'approved'] %}
+<div class="cluster-preview-section">
+  <h2 style="font-size: 1.3rem; margin-bottom: 0.5rem; color: var(--text);">
+    {% if plan.status == 'approved' %}✓ Approved Content Matrix{% else %}📅 Preview & Edit Planned Clusters{% endif %}
+  </h2>
+  <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">
+    The strategy agent has clustered topics into messaging pillars. Expand each cluster to review article titles,
+    metadata, and schedule triggers.
+  </p>
+
+  <div style="display: flex; flex-direction: column; gap: 1rem;">
+    <!-- Group tasks by messaging pillar using Jinja groupby filter -->
+    {% for pillar_name, pillar_tasks in plan.tasks | groupby('core_messaging_pillar') %}
+    <details class="expandable-section" {% if loop.first %}open{% endif %}>
+      <summary style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span class="pillar-badge">Pillar {{ loop.index }}</span>
+          <span style="font-size: 1.05rem; font-weight: 600; color: var(--text);">{{ pillar_name }}</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-right: 1.5rem;">
+          {{ pillar_tasks | length }} articles planned
+        </div>
+      </summary>
+
+      <div class="expandable-content" style="display: flex; flex-direction: column; gap: 1.25rem;">
+        {% for task in pillar_tasks %}
+        <div
+          style="background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1.25rem; transition: border-color 0.2s;">
+          <div
+            style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem; flex-wrap: wrap;">
+
+            <div style="flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 0.5rem;">
+              <!-- Badge + Title -->
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                {% if task.is_hub %}
+                <span class="hub-badge">Cornerstone (Hub)</span>
+                {% else %}
+                <span class="spoke-badge">Supporting (Spoke)</span>
+                {% endif %}
+                <span style="font-size: 0.8rem; color: var(--text-dim);">Target: {{ task.primary_keyword }}</span>
+              </div>
+
+              <h4 style="font-size: 1rem; font-weight: 600; line-height: 1.4; color: var(--text);">{{ task.topic }}</h4>
+
+              <!-- Secondary keywords -->
+              <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem;">
+                {% for sk in task.secondary_keywords %}
+                <span
+                  style="font-size: 0.65rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 4px; padding: 0.1rem 0.4rem; color: var(--text-muted);">
+                  #{{ sk }}
+                </span>
+                {% endfor %}
+              </div>
+            </div>
+
+            <!-- Date schedule & Metrics -->
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-end; flex-shrink: 0;">
+
+              <!-- Metrics -->
+              <div style="display: flex; gap: 0.5rem;">
+                <div class="metric-chip">Vol: {{ task.evaluation_metrics.search_volume }}</div>
+                <div class="metric-chip">KD: {{ task.evaluation_metrics.keyword_difficulty }}</div>
+              </div>
+
+              <!-- Date picker override (Disabled if plan approved) -->
+              <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+                <label
+                  style="font-size: 0.7rem; color: var(--text-dim); text-align: right; text-transform: uppercase;">Publish
+                  Date & Time</label>
+                <input type="datetime-local" class="form-input" value="{{ task.scheduled_at[:16] }}" {% if
+                  plan.status=='approved' %}disabled{% endif %}
+                  style="padding: 0.35rem 0.65rem; font-size: 0.8rem; width: 200px; background: var(--bg-input);"
+                  hx-post="/cluster-plans/{{ plan.id }}/update-task-schedule" hx-trigger="change"
+                  hx-vals='{"task_idx": {{ plan.tasks.index(task) }} }' name="scheduled_at" />
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- People Also Ask details expander -->
+          {% if task.evaluation_metrics.people_also_ask %}
+          <details style="margin-top: 1rem; border-top: 1px dashed var(--border); padding-top: 0.75rem;">
+            <summary style="font-size: 0.75rem; color: var(--accent-light); cursor: pointer; user-select: none;">
+              ❓ View SEO Intent Queries (PAA Questions)
+            </summary>
+            <ul
+              style="margin-top: 0.5rem; padding-left: 1.25rem; font-size: 0.75rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem;">
+              {% for q in task.evaluation_metrics.people_also_ask %}
+              <li>{{ q }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+
+  <!-- Final Approval form (Only active if unapproved) -->
+  {% if plan.status == 'cluster_review' %}
+  <form action="/cluster-plans/{{ plan.id }}/approve" method="post"
+    style="margin-top: 3rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid var(--border); padding-top: 2rem;">
+    <a href="/" class="btn btn--ghost" style="padding: 0.7rem 1.5rem;">Cancel Plan</a>
+    <button type="submit" class="btn btn--primary btn--large"
+      style="background: linear-gradient(135deg, var(--success) 0%, #34d399 100%); border: none; box-shadow: 0 0 20px rgba(16, 185, 129, 0.25); padding: 0.7rem 2rem;">
+      🚀 Approve & Bulk Schedule 90-Day Plan
+    </button>
+  </form>
+  {% else %}
+  <div
+    style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius); padding: 1.5rem; margin-top: 2.5rem; display: flex; align-items: center; gap: 0.75rem;">
+    <span style="font-size: 1.5rem;">🚀</span>
+    <div>
+      <strong style="color: var(--success);">This cluster plan is approved and active!</strong>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">All articles are successfully enqueued
+        in the calendar scheduler and will write autonomously.</p>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endif %}
+
+{% endblock %}

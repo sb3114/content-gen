@@ -1,0 +1,7 @@
+to do:
+1. create a auto monitoring and suggestion  - allow previously published jobs to show performance and button tweak post performance ( or auto suggestions ) 
+2. add memory to store links for articles and backling in new articles
+3. make the portal more performant ( low P ) -maybe use a better architecture
+4. High : index article after publishing
+
+

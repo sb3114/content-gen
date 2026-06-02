@@ -1,24 +1,28 @@
 """
 Jobs API: create, list, get, approve, reject, publish.
 """
+import logging
 from datetime import datetime
 from typing import Annotated, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession  # needs .exec()
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from src.database import get_session
-from src.models.job import ArticleJob, JobStatus
+from src.models.job import ArticleJob, JobStatus, ClusterPlan
 from src.models.settings import CompanySettings
 from src.pipeline.orchestrator import publish_job, run_pipeline, resume_pipeline
 from src.pipeline.refinement import run_refinement
+from src.pipeline.scheduling import schedule_writing_jobs
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/ui/templates")
-
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -129,11 +133,36 @@ async def dashboard(request: Request, session: Session):
     settings_obj = await session.get(CompanySettings, 1)
     if not settings_obj:
         settings_obj = CompanySettings(id=1)
+    
+    # Retrieve both independent and plan-scheduled jobs
     jobs = (await session.exec(
-        select(ArticleJob).order_by(ArticleJob.created_at.desc()).limit(50)
+        select(ArticleJob)
+        .order_by(ArticleJob.created_at.desc())
+        .limit(50)
     )).all()
+    
+    plans = (await session.exec(
+        select(ClusterPlan).order_by(ClusterPlan.created_at.desc()).limit(20)
+    )).all()
+    
+    # Map child jobs to each plan for the "Job summary" view
+    plan_jobs_map = {}
+    for plan in plans:
+        plan_jobs = (await session.exec(
+            select(ArticleJob)
+            .where(ArticleJob.cluster_plan_id == plan.id)
+            .order_by(ArticleJob.scheduled_at.asc())
+        )).all()
+        plan_jobs_map[plan.id] = plan_jobs
+        
     return templates.TemplateResponse(
-        "index.html", {"request": request, "jobs": jobs, "settings": settings_obj}
+        "index.html", {
+            "request": request, 
+            "jobs": jobs, 
+            "plans": plans,
+            "plan_jobs_map": plan_jobs_map,
+            "settings": settings_obj
+        }
     )
 
 
@@ -164,6 +193,7 @@ async def create_job(
     user_titles: str = Form(""),
     competitor_urls: str = Form(""),
     seed_keywords: str = Form(""),
+    personalization_snippets: Optional[str] = Form(None),
     publish_targets: list[str] = Form(default=["wordpress", "linkedin"]),
     newsletter_type: str = Form("update"),
     newsletter_timeframe: Optional[str] = Form(None),
@@ -204,6 +234,7 @@ async def create_job(
         user_titles=parse_lines(user_titles),
         competitor_urls=parse_lines(competitor_urls),
         seed_keywords=parse_lines(seed_keywords),
+        personalization_snippets=personalization_snippets.strip() if personalization_snippets else None,
         publish_wordpress="wordpress" in publish_targets,
         publish_linkedin="linkedin" in publish_targets,
         publish_newsletter="newsletter" in publish_targets,
@@ -275,6 +306,18 @@ async def approve_job(
     if not job:
         raise HTTPException(404, "Job not found")
 
+    # Style Learning Loop: Capture style preferences from manual edits asynchronously
+    original_markdown = job.article_markdown or ""
+    new_markdown = reviewed_markdown or ""
+    if original_markdown.strip() != new_markdown.strip():
+        from src.pipeline.memory import record_edit_feedback
+        background_tasks.add_task(
+            record_edit_feedback,
+            original_markdown,
+            new_markdown,
+            job.topic
+        )
+
     job.reviewed_title = reviewed_title
     job.reviewed_markdown = reviewed_markdown
     if reviewed_linkedin: job.reviewed_linkedin = reviewed_linkedin
@@ -322,6 +365,7 @@ async def reschedule_job(
 
 @router.post("/jobs/{job_id}/refine")
 async def refine_job(
+    background_tasks: BackgroundTasks,
     request: Request,
     session: Session,
     job_id: str,
@@ -337,6 +381,10 @@ async def refine_job(
     # 1. Update history with user's message
     history = list(job.chat_history) if job.chat_history else []
     history.append({"role": "user", "content": user_prompt})
+    
+    # Style Learning Loop: Extract evergreen tone/style guidelines from chat prompt in background
+    from src.pipeline.memory import record_style_feedback
+    background_tasks.add_task(record_style_feedback, user_prompt)
     
     settings_obj = await session.get(CompanySettings, 1)
     company_context = settings_obj.summarized_context if settings_obj else ""
@@ -542,6 +590,7 @@ async def edit_job(
 
 @router.post("/jobs/{job_id}/save_content")
 async def save_job_content(
+    background_tasks: BackgroundTasks,
     session: Session,
     job_id: str,
     reviewed_title: str = Form(...),
@@ -553,6 +602,18 @@ async def save_job_content(
     job = await session.get(ArticleJob, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
+
+    # Style Learning Loop: Capture style preferences from manual edits asynchronously
+    original_markdown = job.article_markdown or ""
+    new_markdown = reviewed_markdown or ""
+    if original_markdown.strip() != new_markdown.strip():
+        from src.pipeline.memory import record_edit_feedback
+        background_tasks.add_task(
+            record_edit_feedback,
+            original_markdown,
+            new_markdown,
+            job.topic
+        )
 
     job.reviewed_title = reviewed_title
     job.reviewed_markdown = reviewed_markdown
@@ -594,6 +655,52 @@ async def confirm_keyword(
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
+@router.post("/jobs/{job_id}/pause")
+async def pause_job(
+    request: Request,
+    session: Session,
+    job_id: str,
+):
+    """Manually pause a queued, running, or resuming job."""
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    if job.status in [JobStatus.queued, JobStatus.pending, JobStatus.running, JobStatus.resuming]:
+        job.status = JobStatus.paused
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        await session.commit()
+
+    referer = request.headers.get("referer")
+    if referer:
+        return RedirectResponse(url=referer, status_code=303)
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
+@router.post("/jobs/{job_id}/resume")
+async def resume_job(
+    request: Request,
+    session: Session,
+    job_id: str,
+):
+    """Resume a paused job by placing it back in the queue."""
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    if job.status == JobStatus.paused:
+        job.status = JobStatus.queued
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        await session.commit()
+
+    referer = request.headers.get("referer")
+    if referer:
+        return RedirectResponse(url=referer, status_code=303)
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
 # ── Queue Status (HTMX polling) ───────────────────────────────────────────────
 
 from fastapi.responses import JSONResponse
@@ -617,3 +724,436 @@ async def queue_status(session: Session):
         }
         for j in jobs
     ])
+
+
+# ── Rolling 90-Day Content Planner Routes ──────────────────────────────────────
+
+from src.pipeline.cluster_orchestrator import run_cluster_plan_stage1, run_cluster_plan_stage2
+
+@router.post("/cluster-plans")
+async def create_cluster_plan(
+    background_tasks: BackgroundTasks,
+    session: Session,
+    seed_topic: Optional[str] = Form(None),
+    min_search_volume: int = Form(50),
+    max_search_volume: int = Form(1000),
+    max_difficulty: int = Form(40),
+    competitor_url: Optional[str] = Form(None),
+    publish_targets: list[str] = Form(default=["wordpress", "linkedin"])
+):
+    """Creates a new stateful ClusterPlan and triggers Agent 1 keyword discovery."""
+    final_seed = seed_topic.strip() if (seed_topic and seed_topic.strip()) else "Brand Strategy"
+    plan = ClusterPlan(
+        seed=final_seed,
+        status="planning",
+        current_step="keyword_research",
+        min_search_volume=min_search_volume,
+        max_search_volume=max_search_volume,
+        max_difficulty=max_difficulty,
+        competitor_url=competitor_url.strip() if competitor_url else None,
+        publish_targets=publish_targets,
+        keywords=[],
+        tasks=[]
+    )
+    session.add(plan)
+    await session.commit()
+    await session.refresh(plan)
+
+    background_tasks.add_task(run_cluster_plan_stage1, plan.id)
+    return RedirectResponse(url=f"/cluster-plans/{plan.id}", status_code=303)
+
+
+@router.get("/cluster-plans/{plan_id}", response_class=HTMLResponse)
+async def get_cluster_plan(request: Request, session: Session, plan_id: str):
+    """Renders the stateful 90-Day Cluster Plan dashboard."""
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    
+    # Calculate scheduling dates bounds if tasks are present
+    start_date = None
+    end_date = None
+    if plan.tasks:
+        try:
+            dates = [datetime.fromisoformat(t["scheduled_at"]) for t in plan.tasks if t.get("scheduled_at")]
+            if dates:
+                start_date = min(dates).strftime("%b %d, %Y")
+                end_date = max(dates).strftime("%b %d, %Y")
+        except Exception:
+            pass
+
+    return templates.TemplateResponse(
+        "cluster_plan.html",
+        {
+            "request": request,
+            "plan": plan,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+    )
+
+
+@router.get("/cluster-plans/{plan_id}/status", response_class=HTMLResponse)
+async def get_cluster_plan_status(request: Request, session: Session, plan_id: str):
+    """Returns HTML partial of the timeline and keyword panel for HTMX polling."""
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+        
+    # Calculate scheduling dates bounds
+    start_date = None
+    end_date = None
+    if plan.tasks:
+        try:
+            dates = [datetime.fromisoformat(t["scheduled_at"]) for t in plan.tasks if t.get("scheduled_at")]
+            if dates:
+                start_date = min(dates).strftime("%b %d, %Y")
+                end_date = max(dates).strftime("%b %d, %Y")
+        except Exception:
+            pass
+
+    return templates.TemplateResponse(
+        "partials/cluster_workflow_state.html",
+        {
+            "request": request,
+            "plan": plan,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+    )
+
+
+# ── HTMX Keyword Management Actions ───────────────────────────────────────────
+
+@router.post("/cluster-plans/{plan_id}/keywords/add", response_class=HTMLResponse)
+async def add_plan_keyword(
+    request: Request,
+    session: Session,
+    plan_id: str,
+    new_kw: str = Form(...),
+    pillar: str = Form("General Strategy"),
+    role: str = Form("spoke"),
+    source: str = Form("custom")
+):
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    
+    keywords = list(plan.keywords or [])
+    # Check if keyword already exists
+    if not any(k.get("keyword", "").lower() == new_kw.lower() for k in keywords):
+        keywords.append({
+            "keyword": new_kw.strip(),
+            "search_volume": 100,
+            "keyword_difficulty": 20,
+            "secondary_keywords": [],
+            "status": "approved",
+            "pillar": pillar.strip(),
+            "role": role.strip(),
+            "source": source.strip(),
+            "paa_questions": []
+        })
+        plan.keywords = keywords
+        flag_modified(plan, "keywords")
+        session.add(plan)
+        await session.commit()
+        await session.refresh(plan)
+
+    return templates.TemplateResponse(
+        "partials/cluster_keywords_list.html",
+        {"request": request, "plan": plan}
+    )
+
+
+@router.post("/cluster-plans/{plan_id}/keywords/{kw_idx}/update", response_class=HTMLResponse)
+async def update_plan_keyword(
+    request: Request,
+    session: Session,
+    plan_id: str,
+    kw_idx: int,
+    keyword: str = Form(...),
+    volume: int = Form(100),
+    difficulty: int = Form(20),
+    secondary_kws: str = Form(""),
+    pillar: str = Form("General Strategy"),
+    role: str = Form("spoke"),
+    source: str = Form("discovery")
+):
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    
+    keywords = list(plan.keywords or [])
+    if 0 <= kw_idx < len(keywords):
+        sec_list = [s.strip() for s in secondary_kws.split(",") if s.strip()]
+        keywords[kw_idx]["keyword"] = keyword.strip()
+        keywords[kw_idx]["search_volume"] = volume
+        keywords[kw_idx]["keyword_difficulty"] = difficulty
+        keywords[kw_idx]["secondary_keywords"] = sec_list
+        keywords[kw_idx]["pillar"] = pillar.strip()
+        keywords[kw_idx]["role"] = role.strip()
+        keywords[kw_idx]["source"] = source.strip()
+        plan.keywords = keywords
+        flag_modified(plan, "keywords")
+        session.add(plan)
+        await session.commit()
+        await session.refresh(plan)
+
+
+    return templates.TemplateResponse(
+        "partials/cluster_keywords_list.html",
+        {"request": request, "plan": plan}
+    )
+
+
+@router.post("/cluster-plans/{plan_id}/keywords/{kw_idx}/delete", response_class=HTMLResponse)
+async def delete_plan_keyword(
+    request: Request,
+    session: Session,
+    plan_id: str,
+    kw_idx: int
+):
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    
+    keywords = list(plan.keywords or [])
+    if 0 <= kw_idx < len(keywords):
+        keywords[kw_idx]["status"] = "deleted"
+        plan.keywords = keywords
+        flag_modified(plan, "keywords")
+        session.add(plan)
+        await session.commit()
+        await session.refresh(plan)
+
+    return templates.TemplateResponse(
+        "partials/cluster_keywords_list.html",
+        {"request": request, "plan": plan}
+    )
+
+
+@router.post("/cluster-plans/{plan_id}/keywords/{kw_idx}/toggle", response_class=HTMLResponse)
+async def toggle_plan_keyword(
+    request: Request,
+    session: Session,
+    plan_id: str,
+    kw_idx: int
+):
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    
+    keywords = list(plan.keywords or [])
+    if 0 <= kw_idx < len(keywords):
+        current_status = keywords[kw_idx].get("status", "approved")
+        keywords[kw_idx]["status"] = "pending" if current_status == "approved" else "approved"
+        plan.keywords = keywords
+        flag_modified(plan, "keywords")
+        session.add(plan)
+        await session.commit()
+        await session.refresh(plan)
+
+    return templates.TemplateResponse(
+        "partials/cluster_keywords_list.html",
+        {"request": request, "plan": plan}
+    )
+
+
+# ── Resume Strategy Step & Approvals ──────────────────────────────────────────
+
+@router.post("/cluster-plans/{plan_id}/confirm-keywords")
+async def confirm_keywords(
+    background_tasks: BackgroundTasks,
+    session: Session,
+    plan_id: str
+):
+    """Confirms the keyword list and kicks off Agent 2 strategy clustering in the background."""
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    
+    plan.status = "generating_clusters"
+    plan.current_step = "strategy_generation"
+    session.add(plan)
+    await session.commit()
+
+    background_tasks.add_task(run_cluster_plan_stage2, plan.id)
+    
+    # We return HTMX redirect to refresh the main planning view
+    return HTMLResponse(
+        status_code=200,
+        headers={"HX-Redirect": f"/cluster-plans/{plan.id}"}
+    )
+
+
+@router.post("/cluster-plans/{plan_id}/update-task-schedule")
+async def update_task_schedule(
+    session: Session,
+    plan_id: str,
+    task_idx: int = Form(...),
+    scheduled_at: str = Form(...)
+):
+    """Allows user to dynamically edit individual article scheduled dates in place."""
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    
+    tasks = list(plan.tasks or [])
+    if 0 <= task_idx < len(tasks):
+        try:
+            # Parse and format back to ISO
+            parsed_dt = datetime.fromisoformat(scheduled_at.replace("Z", ""))
+            tasks[task_idx]["scheduled_at"] = parsed_dt.isoformat()
+            plan.tasks = tasks
+            session.add(plan)
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Failed to update task schedule date: {e}")
+            raise HTTPException(status_code=400, detail="Invalid date format")
+
+    return HTMLResponse("OK")
+
+
+@router.post("/cluster-plans/{plan_id}/approve")
+async def approve_cluster_plan(
+    session: Session,
+    plan_id: str,
+    targets: Optional[str] = Form(None)
+):
+    """
+    Final approval.
+    Creates ArticleJob rows sequentially with the customized dates/times and publish targets,
+    setting plan status to 'approved'.
+    """
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+
+    publish_targets = plan.publish_targets or ["wordpress", "linkedin"]
+    if targets:
+        publish_targets = [t.strip() for t in targets.split(",") if t.strip()]
+
+    # Create and schedule individual ArticleJobs
+    created_jobs = []
+    for idx, task in enumerate(plan.tasks):
+        # Calculate queue position
+        stmt_queued = select(ArticleJob).where(
+            ArticleJob.status.in_([JobStatus.queued, JobStatus.pending])
+        )
+        res_queued = await session.exec(stmt_queued)
+        queued_count = len(res_queued.all())
+        queue_pos = queued_count + 1
+
+        scheduled_dt = None
+        if task.get("scheduled_at"):
+            scheduled_dt = datetime.fromisoformat(task["scheduled_at"])
+
+        # Create ArticleJob
+        job = ArticleJob(
+            topic=task.get("topic") or "Cluster Job",
+            core_messaging_pillar=task.get("core_messaging_pillar"),
+            primary_keyword=task.get("primary_keyword"),
+            secondary_keywords=task.get("secondary_keywords", []),
+            evaluation_metrics=task.get("evaluation_metrics", {}),
+            scheduled_at=scheduled_dt,
+            status=JobStatus.queued,
+            queue_position=queue_pos,
+            publish_targets=publish_targets,
+            publish_wordpress="wordpress" in publish_targets,
+            publish_linkedin="linkedin" in publish_targets,
+            publish_newsletter="newsletter" in publish_targets,
+            cluster_plan_id=plan.id,
+            competitor_urls=[plan.competitor_url] if plan.competitor_url else [],
+        )
+        session.add(job)
+        created_jobs.append(job)
+
+    plan.approved = True
+    plan.status = "approved"
+    session.add(plan)
+    await session.commit()
+
+    logger.info(f"Approved and bulk scheduled {len(created_jobs)} articles from plan {plan_id}.")
+    return RedirectResponse(url="/", status_code=303)
+
+
+# Keep legacy route for backward compatibility
+@router.post("/approve_clusters")
+@router.get("/approve_clusters")
+async def approve_clusters(
+    request: Request,
+    session: Session,
+    id: Optional[str] = None,
+    targets: Optional[str] = None,
+):
+    if id:
+        return await approve_cluster_plan(session, id, targets)
+    
+    # Fallback to latest unapproved plan
+    stmt = select(ClusterPlan).where(ClusterPlan.approved == False).order_by(ClusterPlan.created_at.desc())
+    res = await session.exec(stmt)
+    plan = res.first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="No unapproved plans found.")
+    return await approve_cluster_plan(session, plan.id, targets)
+
+
+@router.post("/cluster-plans/{plan_id}/delete")
+async def delete_cluster_plan(session: Session, plan_id: str):
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+    await session.delete(plan)
+    await session.commit()
+    return RedirectResponse(url="/", status_code=303)
+
+
+@router.get("/cluster-plans/active-badge", response_class=HTMLResponse)
+async def get_active_plan_badge(request: Request, session: Session):
+    stmt = (
+        select(ClusterPlan)
+        .where(ClusterPlan.status.in_(["planning", "generating_clusters", "keyword_review", "cluster_review"]))
+        .order_by(ClusterPlan.created_at.desc())
+    )
+    res = await session.exec(stmt)
+    active_plans = res.all()
+    
+    if not active_plans:
+        return HTMLResponse("")
+        
+    plan = active_plans[0]
+    
+    badge_html = ""
+    if plan.status in ["keyword_review", "cluster_review"]:
+        action_name = "Review Keywords" if plan.status == "keyword_review" else "Review Clusters"
+        badge_html = f"""
+        <style>
+        @keyframes nav-pulse {{
+          0% {{ transform: scale(0.95); opacity: 0.6; }}
+          50% {{ transform: scale(1.15); opacity: 1; }}
+          100% {{ transform: scale(0.95); opacity: 0.6; }}
+        }}
+        </style>
+        <a href="/cluster-plans/{plan.id}" class="nav-link" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 0.25rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none; box-shadow: 0 0 10px rgba(245, 158, 11, 0.15); transition: border-color 0.2s;">
+          <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #fbbf24; animation: nav-pulse 1.5s infinite;"></span>
+          ⚠️ Action Pending: {action_name}
+        </a>
+        """
+    else:
+        status_name = "Discovering Keywords" if plan.status == "planning" else "Building Strategy"
+        badge_html = f"""
+        <style>
+        @keyframes nav-pulse {{
+          0% {{ transform: scale(0.95); opacity: 0.6; }}
+          50% {{ transform: scale(1.15); opacity: 1; }}
+          100% {{ transform: scale(0.95); opacity: 0.6; }}
+        }}
+        </style>
+        <a href="/cluster-plans/{plan.id}" class="nav-link" style="background: rgba(124, 58, 237, 0.15); color: var(--accent-light); border: 1px solid rgba(124, 58, 237, 0.35); padding: 0.25rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none; box-shadow: 0 0 10px rgba(124, 58, 237, 0.15); transition: border-color 0.2s;">
+          <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: nav-pulse 1.5s infinite;"></span>
+          🤖 Agent Active: {status_name}
+        </a>
+        """
+        
+    return HTMLResponse(badge_html)
+

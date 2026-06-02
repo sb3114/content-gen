@@ -9,6 +9,45 @@ import httpx
 
 from src.config import settings
 
+import os
+import json
+import time
+
+CACHE_FILE = "data/dataforseo_cache.json"
+
+def _get_cache(key: str) -> list | dict | tuple | None:
+    try:
+        if not os.path.exists(CACHE_FILE):
+            return None
+        with open(CACHE_FILE, "r") as f:
+            cache = json.load(f)
+        item = cache.get(key)
+        if item:
+            # Check if younger than 24 hours (86400 seconds)
+            if time.time() - item.get("timestamp", 0) < 86400:
+                return item.get("data")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Cache read error: {e}")
+    return None
+
+def _set_cache(key: str, data: list | dict | tuple):
+    try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        cache = {}
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, "r") as f:
+                cache = json.load(f)
+        cache[key] = {
+            "timestamp": time.time(),
+            "data": data
+        }
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f, indent=2)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Cache write error: {e}")
+
 
 class KeywordResearcher:
     async def research(self, seed_keywords: list[str], topic: str, db_settings=None) -> dict:
@@ -476,10 +515,10 @@ class KeywordResearcher:
         except Exception:
             return None
 
-    async def select_golden_ratio_keyword(self, keywords: list[dict], brand_context: str = None) -> dict:
+    async def select_golden_ratio_keyword(self, keywords: list[dict], brand_context: str = None, db_settings=None) -> dict:
         """
         Stage 5: AI Keyword Selection.
-        Selects the single best "Golden Ratio" keyword from survivors.
+        Selects the single best "Golden Ratio" focus keyword and exactly 5 secondary keywords from survivors.
         """
         import json
         import google.generativeai as genai
@@ -503,24 +542,28 @@ We are selecting this focus keyword for our brand:
 
         prompt = f"""\
 You are the Chief SEO Strategist for our brand.
-Analyze the following list of keywords and select the SINGLE ONE keyword that represents the "Golden Ratio" combination:
+Analyze the following list of keywords and select the SINGLE primary focus keyword representing the "Golden Ratio" combination:
 - High Search Volume
 - Low Keyword Difficulty (KD <= 35)
 - Positive or Stable Search Trend Trajectory (Trend Slope)
 {brand_section}
 
+Additionally, select EXACTLY 5 secondary keywords from the remaining list of keywords that:
+- Closely support, relate to, or complement the chosen primary focus keyword and topic.
+- Offer excellent SEO coverage to form a strong keyword cluster.
+
 CRITICAL RELEVANCE RULES:
-1. The chosen keyword MUST be highly relevant to our brand's mission, products, and target audience (ICPs).
-2. It MUST NOT be a generic clinical medical term, database coordinate, generic consumer product, or raw engineering/system diagram.
-3. It should directly relate to elderly social connection, family communication for seniors, smart/simple senior technology, caregiver peace of mind, dementia/elder care, or reducing social isolation. If none match senior care, select the most relevant high-intent general family/communication keyword.
+1. The chosen primary and secondary keywords MUST be highly relevant to our brand's mission, products, and target audience (ICPs).
+2. They MUST NOT be generic clinical medical terms, database coordinates, generic consumer products, or raw engineering/system diagram.
+3. They should directly relate to elderly social connection, family communication for seniors, smart/simple senior technology, caregiver peace of mind, dementia/elder care, or reducing social isolation. If none match senior care, select the most relevant high-intent general family/communication keywords.
 
 List of surviving keywords:
 {kw_list_str}
 
-Return your choice in strict JSON format with exactly two keys:
+Return your choices in strict JSON format with exactly two keys:
 {{
-  "chosen_keyword": "the selected keyword",
-  "rationale": "a brief, highly professional explanation of why this represents the absolute best Golden Ratio keyword and how it directly aligns with and serves our brand and target ICPs"
+  "chosen_keyword": "the selected primary focus keyword",
+  "secondary_keywords": ["keyword 1", "keyword 2", "keyword 3", "keyword 4", "keyword 5"]
 }}
 """
         try:
@@ -534,18 +577,33 @@ Return your choice in strict JSON format with exactly two keys:
             
             result = json.loads(text)
             chosen_kw_name = result.get("chosen_keyword", "")
+            secondary_kws = result.get("secondary_keywords", [])
+            
+            chosen_kw_dict = None
             for kw in keywords:
                 if kw["keyword"].lower() == chosen_kw_name.lower():
-                    kw["rationale"] = result.get("rationale", "")
-                    return kw
+                    chosen_kw_dict = kw.copy()
+                    break
                     
-            first_kw = keywords[0]
-            first_kw["rationale"] = result.get("rationale", "Selected as top candidate.")
-            return first_kw
+            if not chosen_kw_dict:
+                chosen_kw_dict = keywords[0].copy()
+                
+            # Ensure we always return exactly 5 secondary keywords
+            if len(secondary_kws) < 5:
+                fallback_pool = [k["keyword"] for k in keywords if k["keyword"].lower() != chosen_kw_dict["keyword"].lower()]
+                for fkw in fallback_pool:
+                    if fkw not in secondary_kws:
+                        secondary_kws.append(fkw)
+                    if len(secondary_kws) == 5:
+                        break
+            
+            chosen_kw_dict["secondary_keywords"] = secondary_kws[:5]
+            return chosen_kw_dict
         except Exception as e:
             logger.error(f"Error in select_golden_ratio_keyword: {e}")
-            top_kw = sorted(keywords, key=lambda x: x["search_volume"], reverse=True)[0]
-            top_kw["rationale"] = "Safe fallback: highest search volume candidate."
+            top_kw = sorted(keywords, key=lambda x: x["search_volume"], reverse=True)[0].copy()
+            fallback_sec = [k["keyword"] for k in keywords if k["keyword"].lower() != top_kw["keyword"].lower()][:5]
+            top_kw["secondary_keywords"] = fallback_sec
             return top_kw
 
     async def detect_serp_format(self, keyword: str, scraped_pages: list[dict]) -> dict:
@@ -643,7 +701,7 @@ Return strict JSON only:
         if db_settings:
             brand_context = f"Company Description: {db_settings.company_description}\nTarget Audience/ICPs:\n{db_settings.icp}"
             
-        golden_ratio_kw = await self.select_golden_ratio_keyword(verified, brand_context=brand_context)
+        golden_ratio_kw = await self.select_golden_ratio_keyword(verified, brand_context=brand_context, db_settings=db_settings)
         logger.info(f"Stage 5 Complete. Golden Ratio keyword selected: '{golden_ratio_kw.get('keyword')}'")
 
         return {
@@ -654,3 +712,243 @@ Return strict JSON only:
             "surviving_keywords": verified,
             "all_keywords_data": expanded,
         }
+
+    async def get_keyword_suggestions(self, seed: str, creds: str) -> list[dict]:
+        """
+        Retrieves keyword suggestions from DataForSEO Labs google/keyword_suggestions/live
+        with exact_match set to false.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        cached = _get_cache(f"suggestions:{seed}")
+        if cached is not None:
+            logger.info(f"Returning cached keyword suggestions for seed '{seed}'")
+            return cached
+
+        payload = [
+            {
+                "keyword": seed,
+                "location_code": settings.dataforseo_location_code,
+                "language_name": settings.dataforseo_language_name,
+                "exact_match": False,
+                "limit": 100
+            }
+        ]
+        
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live",
+                    json=payload,
+                    headers={"Authorization": f"Basic {creds}"},
+                )
+                if resp.status_code != 200:
+                    logger.error(f"Keyword Suggestions API returned {resp.status_code}: {resp.text}")
+                    return []
+                
+                data = resp.json()
+                tasks = data.get("tasks", [])
+                if not tasks or tasks[0].get("status_code") != 20000:
+                    return []
+                
+                result_list = tasks[0].get("result")
+                if not result_list or not result_list[0]:
+                    return []
+                
+                items = result_list[0].get("items")
+                if not items:
+                    return []
+                
+                results = []
+                for item in items:
+                    if not item:
+                        continue
+                    kw = item.get("keyword")
+                    if not kw:
+                        continue
+                    
+                    info = item.get("keyword_info") or {}
+                    props = item.get("keyword_properties") or {}
+                    
+                    search_volume = info.get("search_volume") or 0
+                    competition = info.get("competition") or 0.0
+                    difficulty = props.get("keyword_difficulty") or int(competition * 100)
+                    
+                    results.append({
+                        "keyword": kw,
+                        "search_volume": search_volume,
+                        "competition": competition,
+                        "keyword_difficulty": difficulty
+                    })
+
+                _set_cache(f"suggestions:{seed}", results)
+                return results
+        except Exception as e:
+            logger.error(f"Error in get_keyword_suggestions for '{seed}': {e}")
+            return []
+
+    async def harvest_serp_paa_and_validate(self, seed: str, creds: str) -> tuple[list[str], bool]:
+        """
+        Queries SERP organic API for the seed keyword to harvest PAA (People Also Ask) questions
+        and validates that organic items favor informational guides/blogs over e-commerce stores.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        cached = _get_cache(f"serp:{seed}")
+        if cached is not None:
+            logger.info(f"Returning cached SERP/PAA for seed '{seed}'")
+            return cached[0], cached[1]
+
+        payload = [
+            {
+                "keyword": seed,
+                "location_code": settings.dataforseo_location_code,
+                "language_code": settings.dataforseo_language_code,
+                "device": "desktop",
+                "os": "windows"
+            }
+        ]
+        
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://api.dataforseo.com/v3/serp/google/organic/live/advanced",
+                    json=payload,
+                    headers={"Authorization": f"Basic {creds}"},
+                )
+                if resp.status_code != 200:
+                    logger.error(f"SERP Organic API returned {resp.status_code}: {resp.text}")
+                    return [], True
+                
+                data = resp.json()
+                tasks = data.get("tasks", [])
+                if not tasks or tasks[0].get("status_code") != 20000:
+                    return [], True
+                
+                items = tasks[0].get("result", [{}])[0].get("items", [])
+                paa_questions = []
+                
+                # Heuristics scores to detect informational blogs/guides vs e-commerce
+                info_score = 0
+                ecommerce_score = 0
+                
+                for item in items:
+                    itype = item.get("type")
+                    if itype == "people_also_ask":
+                        paa_items = item.get("items", [])
+                        for pq in paa_items:
+                            q_title = pq.get("title")
+                            if q_title:
+                                paa_questions.append(q_title)
+                                
+                    elif itype == "organic":
+                        url = (item.get("url") or "").lower()
+                        title = (item.get("title") or "").lower()
+                        desc = (item.get("description") or "").lower()
+                        
+                        # Informational indicators
+                        info_indicators = ["blog", "guide", "how-to", "tips", "article", "news", "tutorial", "what is", "best ways", "how can"]
+                        if any(ind in url or ind in title or ind in desc for ind in info_indicators):
+                            info_score += 2
+                        else:
+                            info_score += 1
+                            
+                        # E-commerce indicators
+                        ecommerce_indicators = ["shop", "store", "buy", "product", "checkout", "cart", "pricing", "add to cart"]
+                        if any(ind in url or ind in title or ind in desc for ind in ecommerce_indicators):
+                            ecommerce_score += 3
+                            
+                # If the SERP organic results are heavily ecommerce grid oriented, flag it
+                is_informational = info_score >= ecommerce_score
+                logger.info(f"SERP validation for '{seed}': info_score={info_score}, ecommerce_score={ecommerce_score}, is_informational={is_informational}")
+                
+                _set_cache(f"serp:{seed}", [paa_questions, is_informational])
+                return paa_questions, is_informational
+        except Exception as e:
+            logger.error(f"Error harvesting SERP/PAA for '{seed}': {e}")
+            return [], True
+
+    async def get_competitor_ranked_keywords(self, domain: str, creds: str) -> list[dict]:
+        """
+        Retrieves organic keywords ranking for a competitor domain/URL using DataForSEO Labs ranked_keywords endpoint
+        """
+        import logging
+        import httpx
+        from src.config import settings
+        logger = logging.getLogger(__name__)
+
+        # Parse cleaner domain name
+        clean_domain = domain.replace("http://", "").replace("https://", "").split("/")[0].strip()
+        if not clean_domain:
+            return []
+
+        cached = _get_cache(f"competitor:{clean_domain}")
+        if cached is not None:
+            logger.info(f"Returning cached competitor keywords for domain '{clean_domain}'")
+            return cached
+
+        payload = [
+            {
+                "target": clean_domain,
+                "location_code": settings.dataforseo_location_code,
+                "language_name": settings.dataforseo_language_name,
+                "limit": 50
+            }
+        ]
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live",
+                    json=payload,
+                    headers={"Authorization": f"Basic {creds}"},
+                )
+                if resp.status_code != 200:
+                    logger.error(f"Ranked Keywords API returned {resp.status_code}: {resp.text}")
+                    return []
+
+                data = resp.json()
+                tasks = data.get("tasks", [])
+                if not tasks or tasks[0].get("status_code") != 20000:
+                    return []
+
+                results_list = tasks[0].get("result")
+                if not results_list or not results_list[0]:
+                    return []
+
+                items = results_list[0].get("items")
+                if not items:
+                    return []
+
+                results = []
+                for item in items:
+                    if not item:
+                        continue
+                    kw_data = item.get("keyword_data") or {}
+                    kw = kw_data.get("keyword")
+                    if not kw:
+                        continue
+
+                    info = kw_data.get("keyword_info") or {}
+                    props = kw_data.get("keyword_properties") or {}
+
+                    search_volume = info.get("search_volume") or 0
+                    competition = info.get("competition") or 0.0
+                    difficulty = props.get("keyword_difficulty") or int(competition * 100)
+
+                    results.append({
+                        "keyword": kw,
+                        "search_volume": search_volume,
+                        "competition": competition,
+                        "keyword_difficulty": difficulty
+                    })
+
+                logger.info(f"Retrieved {len(results)} ranked keywords for competitor domain '{clean_domain}'")
+                _set_cache(f"competitor:{clean_domain}", results)
+                return results
+        except Exception as e:
+            logger.error(f"Error in get_competitor_ranked_keywords for '{domain}': {e}")
+            return []
+

@@ -11,22 +11,27 @@ from src.schemas.content_plan import ContentPlan
 genai.configure(api_key=settings.gemini_api_key)
 
 _PROMPT = """\
-Expert SEO strategist. Create a content plan for: {topic}
+You are an expert SEO strategist and healthcare/elderly care content architect. Create a comprehensive, high search-intent content plan for: {topic}
 
 {company_context_section}
 
 ## Inputs
-User Ideas: {user_titles}
-Keywords: {keyword_data}
-Competitors: {scraped_summary}
+- **User Ideas/Keywords**: {user_titles}
+- **Keyword Research Data**: {keyword_data}
+- **Competitor Insights**: {scraped_summary}
 
 ## Instructions
-- Improve title (click-worthy)
-- Select 1 focus + 5-8 secondary keywords. **Prioritize "affordable" keywords**: those with the best balance of high search volume and LOW competition scores.
-- Outline (H2/H3) with intent. Use GEO: answer primary intent early, scannable hierarchy.
-- Word count: 1500-2500. Tone: expert.
-- 160-char meta desc.
-- 3-5 unique angles.
+1. **Title & Click-Worthiness**: Create a compelling, professional, and SEO-friendly title under 60 characters.
+2. **Keyword Optimization**: Use the primary and secondary keywords from the keyword research data provided to you strictly..
+3. **Outline Architecture (SEO & GEO)**:
+   - Structure an outline (H2/H3 levels) with clear, intent-driven sections.
+   - **GEO / Local Context**: You MUST include a dedicated early section (directly after the introduction / under the first H2) reserved for a "GEO Local & Key Summary Box". This section will contain exactly 4 key-point bullets capturing key highlights from the whole blog that would match high intent-search topics and user queries.
+   - Design the outline to naturally compare modern elderly care technology with top market competitors, specifically **getjubileetv.com** and **komp.family**.
+   - Design outline sections that invite authoritative evidence, public data, and guidelines from well-known healthcare, dementia, and Alzheimer's resources (e.g., NHS, alzheimers.org.uk, dementiaaction.org.uk,dementiashare.com, brightmind.ai, mind.org.uk, Alzheimer's Society, Alzheimer's Association, WHO, National Institute on Aging, ageuk.org.uk).
+4. **Volume & Target**: Target 1500-2500 words of deeply informative, empathetic, and authoritative content.
+5. **Meta Description**: Provide a high-density, click-worthy 160-character meta description.
+6. **Unique Angles**: Formulate 3-5 unique, authentic writing angles for the writer.
+
 {serp_format_section}
 Return valid JSON (ContentPlan schema).
 """
@@ -82,6 +87,8 @@ async def run_planning(
     company_context: str = "",
     focus_keyword: str = "",
     serp_format: str = "",
+    secondary_keywords: list[str] = None,
+    personalization_snippets: str = "",
 ) -> tuple[ContentPlan, dict]:
     # Compress competitor content (save tokens)
     summaries = []
@@ -117,6 +124,12 @@ async def run_planning(
     if focus_keyword:
         prompt += f"\n\nCRITICAL SEO REQUIREMENT:\nYou MUST use '{focus_keyword}' exactly as the 'focus_keyword' field in the returned JSON. Base the article outline, angles, and title on ranking for this focus keyword."
 
+    if secondary_keywords:
+        prompt += f"\n\nCRITICAL SEO REQUIREMENT:\nYou MUST strictly use the following 5 secondary keywords in the 'secondary_keywords' field in the returned JSON: {json.dumps(secondary_keywords)}. Weave them naturally into the plan outline, headings, and key points."
+
+    if personalization_snippets and personalization_snippets.strip():
+        prompt += f"\n\nCRITICAL PERSONALIZATION REQUIREMENT:\nThe user has provided these personalization snippets, real-world stories, or specific core ideas:\n{personalization_snippets}\n\nYou MUST weave these real-world stories, personalization details, or core ideas directly into the outline structure (specifically adding key points, angles, or outline sections that directly address or feature them)."
+
     from src.pipeline.llm import call_llm
 
     # 1. Run core high-thinking planning outline (Sonnet)
@@ -135,7 +148,7 @@ Based on the following content plan outline and focus keyword, generate the perf
 
 Focus Keyword: {plan.focus_keyword or focus_keyword}
 Outline:
-{json.dumps(plan.outline or [], indent=2)}
+{json.dumps([x.model_dump() for x in plan.outline] if plan.outline else [], indent=2)}
 
 Return a valid JSON object matching this exact structure:
 {{
@@ -156,7 +169,11 @@ Return a valid JSON object matching this exact structure:
     # Enrich the Sonnet-generated ContentPlan with the Haiku-generated SEO and tags
     plan.chosen_title = haiku_data.get("chosen_title") or plan.chosen_title
     plan.meta_description = haiku_data.get("meta_description") or plan.meta_description
-    plan.secondary_keywords = haiku_data.get("tags") or plan.secondary_keywords or []
+    
+    if secondary_keywords:
+        plan.secondary_keywords = secondary_keywords
+    else:
+        plan.secondary_keywords = haiku_data.get("tags") or plan.secondary_keywords or []
 
     # Combine token usage
     usage = {

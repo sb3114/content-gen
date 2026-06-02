@@ -14,12 +14,14 @@
     border: 1px solid var(--surface-2);
     position: relative;
   }
+
   .calendar-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1.5rem;
   }
+
   .current-time-widget {
     background: var(--surface-2);
     padding: 0.5rem 1rem;
@@ -31,32 +33,41 @@
     align-items: center;
     gap: 0.5rem;
   }
-  .fc-theme-standard td, .fc-theme-standard th {
+
+  .fc-theme-standard td,
+  .fc-theme-standard th {
     border-color: var(--surface-2);
   }
+
   .fc-list-day-cushion {
     background-color: var(--surface-2) !important;
   }
+
   .fc-list-event:hover td {
     background-color: rgba(99, 102, 241, 0.05) !important;
   }
+
   .fc-list-event-time {
     font-weight: 600;
     color: var(--primary);
   }
+
   .fc-list-event-title a {
     color: var(--text-1) !important;
     text-decoration: none !important;
   }
+
   .fc .fc-toolbar-title {
     color: var(--text-1);
     font-size: 1.1rem;
   }
+
   .fc .fc-button-primary {
     background-color: var(--primary);
     border-color: var(--primary);
   }
-  .fc .fc-button-primary:not(:disabled):active, 
+
+  .fc .fc-button-primary:not(:disabled):active,
   .fc .fc-button-primary:not(:disabled).fc-button-active {
     background-color: var(--primary-dark);
     border-color: var(--primary-dark);
@@ -66,11 +77,14 @@
 
 {% block content %}
 {% if settings and settings.rate_limit_banner %}
-<div class="rate-limit-banner" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-lg); padding: 1.2rem; margin-bottom: 2rem; display: flex; align-items: center; gap: 1rem; color: #f87171; box-shadow: 0 4px 20px rgba(239, 68, 68, 0.1);">
+<div class="rate-limit-banner"
+  style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-lg); padding: 1.2rem; margin-bottom: 2rem; display: flex; align-items: center; gap: 1rem; color: #f87171; box-shadow: 0 4px 20px rgba(239, 68, 68, 0.1);">
   <span style="font-size: 1.8rem; line-height: 1;">⚠️</span>
   <div>
-    <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #ef4444; letter-spacing: 0.02em;">LLM rate limit reached</h3>
-    <p style="margin: 0.2rem 0 0 0; font-size: 0.88rem; opacity: 0.9;">{{ settings.rate_limit_banner }} The sequential queue is paused and will automatically resume once the window clears.</p>
+    <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #ef4444; letter-spacing: 0.02em;">LLM rate limit
+      reached</h3>
+    <p style="margin: 0.2rem 0 0 0; font-size: 0.88rem; opacity: 0.9;">{{ settings.rate_limit_banner }} The sequential
+      queue is paused and will automatically resume once the window clears.</p>
   </div>
 </div>
 {% endif %}
@@ -85,6 +99,135 @@
   </a>
 </div>
 
+{% set has_active_plans = false %}
+{% for plan in plans if plan.status != 'approved' %}
+{% set has_active_plans = true %}
+{% endfor %}
+
+{% if has_active_plans %}
+<div class="plans-section" style="margin-bottom: var(--spacing-xl); margin-top: var(--spacing-lg);">
+  <h2
+    style="font-size: 1.25rem; font-weight: 700; color: var(--text-1); margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: 0.5rem;">
+    <span>📅</span> Rolling 90-Day Content Plans (In Setup)
+  </h2>
+  <div class="plans-grid"
+    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md);">
+    {% for plan in plans if plan.status != 'approved' %}
+    <div class="plan-card"
+      style="background: var(--surface-1); border: 1px solid var(--surface-2); border-radius: var(--radius-lg); padding: var(--spacing-lg); cursor: pointer; transition: transform 0.2s, border-color 0.2s; box-shadow: var(--shadow-sm); position: relative; display: flex; flex-direction: column; justify-content: space-between;"
+      onclick="if(!event.target.closest('form')) window.location='/cluster-plans/{{ plan.id }}'"
+      onmouseover="this.style.borderColor='var(--primary)'; this.style.transform='translateY(-2px)'"
+      onmouseout="this.style.borderColor='var(--surface-2)'; this.style.transform='translateY(0)'">
+
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+          <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 500;">
+            {{ plan.created_at.strftime('%b %d, %H:%M') }}
+          </span>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <form action="/cluster-plans/{{ plan.id }}/delete" method="post"
+              onsubmit="return confirm('Permanently delete this strategy plan?')" style="margin: 0;">
+              <button type="submit"
+                style="background:transparent; border:none; color:var(--danger); cursor:pointer; font-size:1rem; padding:0.2rem; opacity:0.6; transition:opacity 0.2s;"
+                onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6"
+                title="Delete strategy plan">🗑</button>
+            </form>
+          </div>
+        </div>
+
+        <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-1); margin: 0 0 0.5rem 0; line-height: 1.3;">
+          {% if plan.seed == "Brand Strategy" %}
+          🎯 Core Pillars Brand Strategy
+          {% else %}
+          🌱 Theme: "{{ plan.seed }}"
+          {% endif %}
+        </h3>
+
+        <div style="margin-bottom: 1rem;">
+          {% if plan.status == "planning" %}
+          <div
+            style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem; color: #818cf8; font-size: 0.85rem;">
+            <span class="pulse-icon">⏳</span>
+            <span>Agent 1: Researching & Discovering Keywords...</span>
+          </div>
+          {% elif plan.status == "keyword_review" %}
+          <div
+            style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-md); padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem; color: #fbbf24; font-size: 0.85rem; font-weight: 600;">
+            <span>👉</span>
+            <span>Action Required: Review discovered keywords</span>
+          </div>
+          {% elif plan.status == "generating_clusters" %}
+          <div
+            style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem; color: #818cf8; font-size: 0.85rem;">
+            <span class="pulse-icon">⏳</span>
+            <span>Agent 2 & 3: Clustering & Scheduling Outlines...</span>
+          </div>
+          {% elif plan.status == "cluster_review" %}
+          <div
+            style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-md); padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem; color: #fbbf24; font-size: 0.85rem; font-weight: 600;">
+            <span>👉</span>
+            <span>Action Required: Review 90-day calendar</span>
+          </div>
+          {% elif plan.status == "failed" %}
+          <div
+            style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-md); padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem; color: #f87171; font-size: 0.85rem;">
+            <span>❌</span>
+            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+              title="{{ plan.error_message }}">Failed: {{ plan.error_message or 'Unknown error' }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.75rem; color: var(--text-dim);">
+        {% if plan.competitor_url %}
+        <span
+          style="background: var(--surface-2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--surface-3);"
+          title="Competitor Target Domain">
+          🎯 {{ plan.competitor_url.replace('https://', '').replace('http://', '').split('/')[0] }}
+        </span>
+        {% endif %}
+        {% if plan.keywords %}
+        <span
+          style="background: var(--surface-2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--surface-3);">
+          🔑 {{ plan.keywords|length }} Keywords
+        </span>
+        {% endif %}
+        {% if plan.tasks %}
+        <span
+          style="background: var(--surface-2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--surface-3);">
+          📦 {{ plan.tasks|length }} Clusters
+        </span>
+        {% endif %}
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  .pulse-icon {
+    display: inline-block;
+    animation: pulse-spin 2s infinite linear;
+  }
+
+  @keyframes pulse-spin {
+    0% {
+      transform: rotate(0deg) scale(1);
+    }
+
+    50% {
+      transform: rotate(180deg) scale(1.1);
+    }
+
+    100% {
+      transform: rotate(360deg) scale(1);
+    }
+  }
+</style>
+{% endif %}
+
 <div class="calendar-embed">
   <div class="calendar-header">
     <h2 style="font-size: 1.1rem; color: var(--text-1);">Weekly Schedule</h2>
@@ -97,7 +240,7 @@
 </div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', function() {
+  document.addEventListener('DOMContentLoaded', function () {
     var calendarEl = document.getElementById('calendar');
     var calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: 'listWeek',
@@ -111,15 +254,15 @@
         right: 'listWeek,dayGridWeek'
       },
       editable: true,
-      eventDrop: function(info) {
+      eventDrop: function (info) {
         // Handle drag and drop rescheduling
         const jobId = info.event.id;
         const newDate = info.event.start.toISOString();
-        
+
         // Create form data
         const formData = new FormData();
         formData.append('scheduled_at', newDate);
-        
+
         fetch(`/jobs/${jobId}/reschedule`, {
           method: 'POST',
           body: formData
@@ -142,14 +285,14 @@
     // Update current time display
     function updateTime() {
       const now = new Date();
-      const options = { 
-        weekday: 'short', 
-        month: 'short', 
+      const options = {
+        weekday: 'short',
+        month: 'short',
         day: 'numeric',
-        hour: '2-digit', 
+        hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
-        hour12: false 
+        hour12: false
       };
       document.getElementById('time-text').textContent = now.toLocaleString('en-US', options);
     }
@@ -158,57 +301,190 @@
   });
 </script>
 
-{% if not jobs %}
+{% set has_approved_plans = false %}
+{% for plan in plans if plan.status == 'approved' %}
+{% set has_approved_plans = true %}
+{% endfor %}
+
+{% if not jobs and not has_approved_plans %}
 <div class="empty-state">
   <div class="empty-icon">✦</div>
   <h2>No jobs yet</h2>
-  <p>Create your first job to get started.</p>
+  <p>Create your first job or content plan to get started.</p>
   <a href="/new" class="btn btn--primary">Create Job</a>
 </div>
 {% else %}
 <div class="job-grid">
+  <!-- 1. Approved Consolidated 90-Day Content Plans -->
+  {% for plan in plans if plan.status == 'approved' %}
+  {% set plan_jobs = plan_jobs_map.get(plan.id, []) %}
+  <div class="job-card plan-card-approved"
+    style="border: 1.5px solid rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.02); cursor: pointer;"
+    onclick="if(!event.target.closest('form') && !event.target.closest('details') && !event.target.closest('.link-chip')) window.location='/cluster-plans/{{ plan.id }}'">
+    <div class="job-card__header">
+      <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap: wrap;">
+        <span class="badge"
+          style="background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25);">✅
+          90-Day Plan</span>
+        <span class="job-card__date">{{ plan.created_at.strftime('%b %d, %H:%M') }}</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.25rem;">
+        <form action="/cluster-plans/{{ plan.id }}/delete" method="post"
+          onsubmit="return confirm('Permanently delete this strategy plan?')" style="margin: 0;">
+          <button type="submit"
+            style="background:transparent; border:none; color:var(--danger); cursor:pointer; font-size:1rem; padding:0.2rem; opacity:0.7; transition:opacity 0.2s;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7"
+            title="Delete strategy plan">🗑</button>
+        </form>
+      </div>
+    </div>
+
+    <h3 class="job-card__title">
+      {% if plan.seed == "Brand Strategy" %}
+      🎯 Rolling 90-Day Brand Strategy
+      {% else %}
+      🌱 Campaign Theme: "{{ plan.seed }}"
+      {% endif %}
+    </h3>
+
+    <div
+      style="font-size: 0.8rem; font-weight: 600; color: #818cf8; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); display: inline-block; margin-top: 0.2rem; margin-bottom: 0.5rem;">
+      🎯 Spaced Clusters (3 Months)
+    </div>
+
+    <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.2rem; margin-bottom: 0.5rem;">One consolidated
+      content strategy spaced semantically for SEO & GEO optimization.</p>
+
+    <!-- Job Summary Collapsible Dropdown -->
+    <details style="margin-top: 1rem; border-top: 1px solid var(--surface-2); padding-top: 0.75rem;"
+      onclick="event.stopPropagation()">
+      <summary
+        style="font-size: 0.85rem; font-weight: 600; color: var(--primary); cursor: pointer; display: flex; align-items: center; gap: 0.35rem; list-style: none;">
+        <span>📋</span> Job Summary ({{ plan_jobs|length }} Articles Scheduled)
+      </summary>
+      <div
+        style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; max-height: 250px; overflow-y: auto; padding-right: 0.25rem;">
+        {% if not plan_jobs %}
+        <p style="font-size: 0.75rem; color: var(--text-dim); margin: 0.2rem 0;">No articles scheduled for this campaign
+          yet.</p>
+        {% else %}
+        {% for c_job in plan_jobs %}
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; background: var(--surface-2); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--surface-3); cursor: pointer; transition: background 0.2s;"
+          onclick="window.location='/jobs/{{ c_job.id }}'" onmouseover="this.style.background='var(--surface-3)'"
+          onmouseout="this.style.background='var(--surface-2)'">
+          <div style="display: flex; flex-direction: column; gap: 0.15rem; max-width: 70%;">
+            <span
+              style="font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+              title="{{ c_job.topic }}">
+              {{ c_job.reviewed_title or c_job.content_plan.chosen_title if c_job.content_plan else c_job.topic }}
+            </span>
+            <span style="font-size: 0.7rem; color: var(--text-dim);">
+              📅 {{ c_job.scheduled_at.strftime('%b %d, %Y') if c_job.scheduled_at else 'Unscheduled' }}
+            </span>
+          </div>
+          <span class="badge badge--{{ c_job.status.value }}" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;">
+            {{ c_job.status.value.replace('_', ' ') }}
+          </span>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </details>
+
+    <div class="job-card__meta" style="margin-top: 0.75rem;">
+      {% if plan.competitor_url %}
+      <span class="tag" title="Competitor Target Domain">🎯 Competitor: {{ plan.competitor_url.replace('https://',
+        '').replace('http://', '').split('/')[0] }}</span>
+      {% endif %}
+      <span class="tag">🛡️ GEO-optimized</span>
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- 2. Standard Instant Articles -->
   {% for job in jobs %}
-  <div class="job-card" onclick="if(!event.target.closest('form') && !event.target.closest('.link-chip')) window.location='/jobs/{{ job.id }}'">
+  <div class="job-card"
+    onclick="if(!event.target.closest('form') && !event.target.closest('.link-chip')) window.location='/jobs/{{ job.id }}'">
     <div class="job-card__header">
       <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap: wrap;">
         <span class="badge badge--{{ job.status.value }}">{{ job.status.value.replace('_', ' ') }}</span>
         {% if job.status.value in ['queued', 'pending'] and job.queue_position %}
-          <span class="badge" style="background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); font-size: 0.7rem;">#{{ job.queue_position }} in queue</span>
+        <span class="badge"
+          style="background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); font-size: 0.7rem;">#{{
+          job.queue_position }} in queue</span>
         {% endif %}
         {% if job.current_step == 'keyword_confirmation' %}
-          <span class="badge" style="background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); font-size: 0.7rem;">🔑 Keyword Review</span>
+        <span class="badge"
+          style="background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); font-size: 0.7rem;">🔑
+          Keyword Review</span>
         {% endif %}
         {% if job.auto_approve %}
-          <span class="badge" style="background: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.25); font-size: 0.7rem;">⚡ Auto</span>
+        <span class="badge"
+          style="background: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.25); font-size: 0.7rem;">⚡
+          Auto</span>
+        {% endif %}
+        {% if job.cluster_plan_id %}
+        <span class="badge"
+          style="background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.7rem;">📅
+          Plan Job</span>
         {% endif %}
         <span class="job-card__date">{{ job.created_at.strftime('%b %d, %H:%M') }}</span>
       </div>
-      <form action="/jobs/{{ job.id }}/delete" method="post" onsubmit="return confirm('Permanently delete this job?')" style="margin: 0;">
-        <button type="submit" style="background:transparent; border:none; color:var(--danger); cursor:pointer; font-size:1rem; padding:0.2rem; opacity:0.7; transition:opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7" title="Delete job">🗑</button>
-      </form>
+      <div style="display: flex; align-items: center; gap: 0.25rem;">
+        {% if job.status.value in ['queued', 'pending', 'running', 'resuming'] %}
+        <form action="/jobs/{{ job.id }}/pause" method="post" style="margin: 0;">
+          <button type="submit"
+            style="background:transparent; border:none; color:var(--text-dim); cursor:pointer; font-size:0.95rem; padding:0.2rem; opacity:0.7; transition:opacity 0.2s;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7" title="Pause job">⏸</button>
+        </form>
+        {% elif job.status.value == 'paused' %}
+        <form action="/jobs/{{ job.id }}/resume" method="post" style="margin: 0;">
+          <button type="submit"
+            style="background:transparent; border:none; color:#818cf8; cursor:pointer; font-size:1.05rem; padding:0.2rem; opacity:0.8; transition:opacity 0.2s;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8" title="Resume job">▶</button>
+        </form>
+        {% endif %}
+        <form action="/jobs/{{ job.id }}/delete" method="post" onsubmit="return confirm('Permanently delete this job?')"
+          style="margin: 0;">
+          <button type="submit"
+            style="background:transparent; border:none; color:var(--danger); cursor:pointer; font-size:1rem; padding:0.2rem; opacity:0.7; transition:opacity 0.2s;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7" title="Delete job">🗑</button>
+        </form>
+      </div>
     </div>
 
     <h3 class="job-card__title">
       {{ job.reviewed_title or job.content_plan.chosen_title if job.content_plan else job.topic }}
     </h3>
 
+    {% if job.core_messaging_pillar %}
+    <div
+      style="font-size: 0.8rem; font-weight: 600; color: #818cf8; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); display: inline-block; margin-top: 0.2rem; margin-bottom: 0.5rem;"
+      class="pillar-badge">
+      🎯 Pillar: {{ job.core_messaging_pillar }}
+    </div>
+    {% endif %}
+
     <p class="job-card__topic">Topic: {{ job.topic }}</p>
 
     <div class="job-card__meta">
       {% if job.publish_wordpress %}
-        <span class="tag" title="WordPress">🌐 WP</span>
+      <span class="tag" title="WordPress">🌐 WP</span>
       {% endif %}
       {% if job.publish_linkedin %}
-        <span class="tag" title="LinkedIn">💼 IN</span>
+      <span class="tag" title="LinkedIn">💼 IN</span>
       {% endif %}
       {% if job.scheduled_at %}
-        <span class="tag" title="Scheduled Time">⏱️ {{ job.scheduled_at.strftime('%m/%d %H:%M') }}</span>
+      <span class="tag" title="Scheduled Time">⏱️ {{ job.scheduled_at.strftime('%m/%d %H:%M') }}</span>
       {% endif %}
       {% if job.keyword_data and job.keyword_data.chosen_keyword %}
-        <span class="tag" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);" title="SEO Focus Keyword Discovered">🔑 {{ job.keyword_data.chosen_keyword.keyword }}</span>
+      <span class="tag"
+        style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);"
+        title="SEO Focus Keyword Discovered">🔑 {{ job.keyword_data.chosen_keyword.keyword }}</span>
       {% endif %}
       {% if job.current_step %}
-        <span class="tag tag--active">⟳ {{ job.current_step }}</span>
+      <span class="tag tag--active">⟳ {{ job.current_step }}</span>
       {% endif %}
     </div>
 

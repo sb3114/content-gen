@@ -47,8 +47,8 @@ async def call_llm(
         # Determine target model
         model = "sonnet" if tier == "sonnet" else "haiku"
 
-        # Inner helper to invoke Claude CLI
-        def _run_claude(model_name: str) -> tuple[str, dict]:
+        # Inner helper to invoke Claude CLI asynchronously
+        async def _run_claude(model_name: str) -> tuple[str, dict]:
             # Format system instruction and JSON prompts
             full_prompt = ""
             if system_instruction:
@@ -64,9 +64,9 @@ async def call_llm(
                         schema_desc = json.dumps(response_schema)
                 
                 full_prompt += (
-                    "\n\nCRITICAL: You MUST return a valid JSON object. "
-                    "Do NOT wrap the JSON in ```json code blocks or markdown formatting. "
-                    "Do not include any introductory or concluding text. Return ONLY the raw JSON string.\n"
+                     "\n\nCRITICAL: You MUST return a valid JSON object. "
+                     "Do NOT wrap the JSON in ```json code blocks or markdown formatting. "
+                     "Do not include any introductory or concluding text. Return ONLY the raw JSON string.\n"
                 )
                 if schema_desc:
                     full_prompt += f"The JSON must strictly conform to this schema:\n{schema_desc}\n"
@@ -80,32 +80,51 @@ async def call_llm(
 
             cmd = ["claude", "-p", full_prompt, "--model", model_name]
             
-            logger.info(f"Invoking Claude CLI: {model_name}")
+            logger.info(f"Invoking Claude CLI asynchronously: {model_name}")
+            import asyncio
+            proc = None
             try:
-                res = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                    timeout=120
+                # Start the subprocess asynchronously
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
                 )
-            except subprocess.TimeoutExpired:
+                # Wait for the subprocess — 360s to handle large strategy prompts
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=360
+                )
+                stdout = stdout_bytes.decode(errors="replace")
+                stderr = stderr_bytes.decode(errors="replace")
+                returncode = proc.returncode
+            except asyncio.TimeoutError:
+                # Kill the orphaned subprocess so it doesn't keep consuming resources
+                if proc and proc.returncode is None:
+                    try:
+                        proc.kill()
+                        await proc.wait()
+                    except Exception:
+                        pass
                 raise LLMRateLimitException(
-                    f"Claude CLI request timed out (model: {model_name}) after 120 seconds. Re-queuing job.",
-                    retry_after_seconds=300
+                    f"Claude CLI request timed out (model: {model_name}) after 360 seconds. Will retry shortly.",
+                    retry_after_seconds=120
                 )
+            except Exception as subprocess_err:
+                raise ValueError(f"Failed to execute Claude CLI: {subprocess_err}")
 
             # Strip ANSI escape color codes from output
             def strip_ansi(text: str) -> str:
                 ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
                 return ansi_escape.sub('', text)
 
-            stdout = strip_ansi(res.stdout or "")
-            stderr = strip_ansi(res.stderr or "")
+            stdout = strip_ansi(stdout or "")
+            stderr = strip_ansi(stderr or "")
             err_text = stdout + "\n" + stderr
 
             # Catch Rate Limits (429, Too Many Requests, Quota hit)
-            if res.returncode != 0 or any(kw in err_text.lower() for kw in ["rate limit", "rate-limit", "quota exceeded", "429", "too many requests"]):
+            if returncode != 0 or any(kw in err_text.lower() for kw in ["rate limit", "rate-limit", "quota exceeded", "429", "too many requests"]):
                 retry_after = 600  # default to 10 minutes
                 
                 # Check for reset timers in output
@@ -122,8 +141,8 @@ async def call_llm(
                     retry_after_seconds=retry_after
                 )
 
-            if res.returncode != 0:
-                raise ValueError(f"Claude CLI failed with exit code {res.returncode}. Stderr: {stderr or stdout}")
+            if returncode != 0:
+                raise ValueError(f"Claude CLI failed with exit code {returncode}. Stderr: {stderr or stdout}")
 
             # Character-based token estimation for dashboard statistics
             in_tokens = len(full_prompt) // 4
@@ -144,14 +163,14 @@ async def call_llm(
             return text, usage
 
         try:
-            return _run_claude(model)
+            return await _run_claude(model)
         except LLMRateLimitException as exc:
             # Check if fallback from Sonnet to Haiku is enabled
             allow_fallback = db_settings.allow_fallback_to_haiku if db_settings else True
             if tier == "sonnet" and allow_fallback:
                 logger.warning(f"Claude Sonnet rate limit hit. Falling back to Haiku: {exc}")
                 # Retry immediately using haiku
-                return _run_claude("haiku")
+                return await _run_claude("haiku")
             else:
                 raise
 

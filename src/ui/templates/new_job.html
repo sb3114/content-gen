@@ -1,20 +1,68 @@
 {% extends "base.html" %}
 {% block title %}New Job — Content Engine{% endblock %}
 
+{% block extra_head %}
+<style>
+  .planner-tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.75rem;
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.6rem 1.25rem;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .tab-btn:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+  }
+  .tab-btn.active {
+    background: var(--accent-glow) !important;
+    color: var(--accent-light) !important;
+    box-shadow: inset 0 0 10px rgba(124, 58, 237, 0.2);
+  }
+  .form-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">New Job</h1>
-    <p class="page-subtitle">Provide a topic — the pipeline will research keywords, pause for your confirmation, write the article, and prepare for review.</p>
+    <h1 class="page-title">Create Content Task</h1>
+    <p class="page-subtitle">Choose between creating an instant, single-targeted piece or generating a rolling 90-day autonomous content planner.</p>
   </div>
 </div>
 
 <div class="form-card">
-  <form action="/jobs" method="post">
-    
-<div class="form-container">
-  <form action="/jobs" method="post">
-    
+  <!-- Interactive Selector Tabs -->
+  <div class="planner-tabs">
+    <button type="button" class="tab-btn active" onclick="switchTab('instant')" id="tab-instant-btn">
+      🚀 Instant Content to Publish
+    </button>
+    <button type="button" class="tab-btn" onclick="switchTab('plan')" id="tab-plan-btn">
+      📅 90-Day Content Strategy Plan
+    </button>
+  </div>
+
+  <!-- FORM 1: INSTANT CONTENT TO PUBLISH -->
+  <form id="instant-content-form" action="/jobs" method="post">
     <!-- SECTION 1: CONTENT -->
     <details class="expandable-section" open>
       <summary>Content Details</summary>
@@ -47,6 +95,16 @@
             placeholder="The Complete Guide to Zero Trust Security in 2025&#10;Why Zero Trust is the Future of Remote Work Security"
           ></textarea>
           <p class="form-hint">One title per line. Gemini will choose or improve on these.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="personalization_snippets" class="form-label">Personalization Snippets & Core Ideas (Optional)</label>
+          <textarea
+            id="personalization_snippets" name="personalization_snippets"
+            class="form-textarea" rows="4"
+            placeholder="e.g. Include a story about a family in Chicago using smart TV features to talk to their grandma. Mention how senior isolation dropped by 40% in our pilot group. Focus on the simple one-button setup."
+          ></textarea>
+          <p class="form-hint">Provide snippets of real, personalized stories, pilot metrics, or unique insights. These will be strictly woven into the article body to make it authentic, human, and highly discoverable by Google's helpful content algorithms.</p>
         </div>
 
         <div class="form-group">
@@ -156,5 +214,100 @@
       </button>
     </div>
   </form>
+
+  <!-- FORM 2: 90-DAY CONTENT STRATEGY PLAN -->
+  <form id="plan-content-form" action="/cluster-plans" method="post" class="hidden">
+    <div class="form-group">
+      <label for="seed_topic" class="form-label">Campaign Theme / Seed Topic</label>
+      <input
+        id="seed_topic" name="seed_topic" type="text"
+        class="form-input"
+        placeholder="e.g. Senior Social Connection (Optional)"
+      />
+      <p class="form-hint">Optional. If left blank, the planning agents will automatically deconstruct your core content pillars from Settings into an organic keyword universe and structured Hub & Spoke calendar.</p>
+    </div>
+
+    <div class="form-group">
+      <label for="competitor_url" class="form-label">Competitor Website / Target Domain</label>
+      <input
+        id="competitor_url" name="competitor_url" type="text"
+        class="form-input"
+        placeholder="e.g. competitor.com (Optional)"
+      />
+      <p class="form-hint">Optional. If provided, the agents will analyze their site to identify organic keyword gaps and harvest missed search angles.</p>
+    </div>
+
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem;">
+      <div class="form-group">
+        <label for="min_search_volume" class="form-label">Min Search Volume <span class="required">*</span></label>
+        <input type="number" id="min_search_volume" name="min_search_volume" value="50" class="form-input" min="0" required />
+        <p class="form-hint">Lower bound of monthly searches.</p>
+      </div>
+
+      <div class="form-group">
+        <label for="max_search_volume" class="form-label">Max Search Volume <span class="required">*</span></label>
+        <input type="number" id="max_search_volume" name="max_search_volume" value="1000" class="form-input" min="1" required />
+        <p class="form-hint">Upper bound of monthly searches.</p>
+      </div>
+
+      <div class="form-group">
+        <label for="max_difficulty" class="form-label">Max Keyword Difficulty <span class="required">*</span></label>
+        <input type="number" id="max_difficulty" name="max_difficulty" value="40" class="form-input" min="0" max="100" required />
+        <p class="form-hint">DataForSEO metric limit (0-100).</p>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top: 1rem;">
+      <label class="form-label">Default Target Outlets</label>
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
+          <input type="checkbox" name="publish_targets" value="wordpress" checked />
+          <span>🌐 WordPress Blog Drafts</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
+          <input type="checkbox" name="publish_targets" value="linkedin" checked />
+          <span>💼 LinkedIn Posts</span>
+        </label>
+      </div>
+    </div>
+
+    <div style="background: rgba(var(--primary-rgb), 0.04); border: 1px solid var(--border); padding: 1.25rem; border-radius: var(--radius); margin-top: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start;">
+      <span style="font-size: 1.25rem;">🤖</span>
+      <p style="font-size: 0.825rem; color: var(--text-muted); line-height: 1.5;">
+        <strong>Autonomous Multi-Agent Workflow:</strong> Launching a 90-Day plan kicks off a background multi-agent orchestrator. 
+        It will first run keyword research (Agent 1) and pause to let you confirm keywords. 
+        Once approved, the strategy and scheduling agents (Agents 2 & 3) will group, cluster, and space out articles across a calendar before final review.
+      </p>
+    </div>
+
+    <div class="form-actions" style="margin-top: 2rem;">
+      <a href="/" class="btn btn--ghost">Cancel</a>
+      <button type="submit" class="btn btn--primary" style="background: linear-gradient(135deg, var(--accent) 0%, #a78bfa 100%); border: none;">
+        ✨ Launch Plan Agent
+      </button>
+    </div>
+  </form>
 </div>
+
+<script>
+  function switchTab(mode) {
+    const instantForm = document.getElementById('instant-content-form');
+    const planForm = document.getElementById('plan-content-form');
+    const instantBtn = document.getElementById('tab-instant-btn');
+    const planBtn = document.getElementById('tab-plan-btn');
+
+    if (mode === 'instant') {
+      instantForm.classList.remove('hidden');
+      planForm.classList.add('hidden');
+      instantBtn.classList.add('active');
+      planBtn.classList.remove('active');
+    } else {
+      instantForm.classList.add('hidden');
+      planForm.classList.remove('hidden');
+      instantBtn.classList.remove('active');
+      planBtn.classList.add('active');
+    }
+  }
+</script>
 {% endblock %}

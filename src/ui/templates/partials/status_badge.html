@@ -1,13 +1,40 @@
-{% if job.status.value in ['pending', 'running'] %}
+{% if job.status.value == 'queued' %}
+<div class="status-card status-card--running"
+     hx-get="/jobs/{{ job.id }}/status"
+     hx-trigger="every 8s"
+     hx-swap="outerHTML"
+     style="display: flex; justify-content: space-between; align-items: center;">
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <div class="spinner" style="opacity:0.5;"></div>
+    <div>
+      <p class="status-card__title">Queued — waiting for previous job to complete</p>
+      {% if job.queue_position %}
+        <p class="status-card__sub">#{{ job.queue_position }} in queue &middot; Pipeline starts automatically (10-min pacing)</p>
+      {% endif %}
+    </div>
+  </div>
+  <form action="/jobs/{{ job.id }}/pause" method="post" style="margin: 0;">
+    <button type="submit" class="btn btn--danger" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">⏸ Pause</button>
+  </form>
+</div>
+{% elif job.status.value in ['pending', 'running', 'resuming'] %}
 <div class="status-card status-card--running"
      hx-get="/jobs/{{ job.id }}/status"
      hx-trigger="every 4s"
-     hx-swap="outerHTML">
-  <div class="spinner"></div>
-  <div>
-    <p class="status-card__title">Pipeline running…</p>
-    <p class="status-card__sub">Step: {{ job.current_step or 'starting' }}</p>
+     hx-swap="outerHTML"
+     style="display: flex; justify-content: space-between; align-items: center;">
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <div class="spinner"></div>
+    <div>
+      <p class="status-card__title">
+        {% if job.status.value == 'resuming' %}Writing article…{% else %}Pipeline running…{% endif %}
+      </p>
+      <p class="status-card__sub">Step: {{ job.current_step or 'starting' }}</p>
+    </div>
   </div>
+  <form action="/jobs/{{ job.id }}/pause" method="post" style="margin: 0;">
+    <button type="submit" class="btn btn--danger" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">⏸ Pause</button>
+  </form>
 </div>
 {% else %}
 <script>window.location.reload();</script>
