@@ -110,6 +110,7 @@
   <div>
     <span class="badge 
       {% if plan.status == 'approved' %}badge--approved
+      {% elif plan.status == 'paused' %}badge--pending_review
       {% elif plan.status == 'failed' %}badge--failed
       {% elif plan.status in ['planning', 'generating_clusters'] %}badge--running
       {% else %}badge--pending_review{% endif %} btn--large" style="padding: 0.4rem 1rem; font-size: 0.85rem;">
@@ -160,7 +161,7 @@
 {% if plan.status in ['cluster_review', 'approved'] %}
 <div class="cluster-preview-section">
   <h2 style="font-size: 1.3rem; margin-bottom: 0.5rem; color: var(--text);">
-    {% if plan.status == 'approved' %}✓ Approved Content Matrix{% else %}📅 Preview &amp; Edit Planned Clusters{% endif %}
+    {% if plan.status == 'approved' %}✓ Approved Content Matrix{% elif plan.status == 'paused' %}⏸ Paused Content Matrix{% else %}📅 Preview &amp; Edit Planned Clusters{% endif %}
   </h2>
   <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">
     The strategy agent has clustered topics into messaging pillars. Expand each cluster to review article titles,
@@ -227,7 +228,7 @@
                   style="font-size: 0.7rem; color: var(--text-dim); text-align: right; text-transform: uppercase;">Publish
                   Date &amp; Time</label>
                 <input type="datetime-local" class="form-input" value="{{ task.scheduled_at[:16] }}" {% if
-                  plan.status=='approved' %}disabled{% endif %}
+                  plan.status in ['approved', 'paused'] %}disabled{% endif %}
                   style="padding: 0.35rem 0.65rem; font-size: 0.8rem; width: 200px; background: var(--bg-input);"
                   hx-post="/cluster-plans/{{ plan.id }}/update-task-schedule" hx-trigger="change"
                   hx-vals='{"task_idx": {{ plan.tasks.index(task) }} }' name="scheduled_at" />
@@ -269,16 +270,37 @@
       🚀 Approve &amp; Bulk Schedule 90-Day Plan
     </button>
   </form>
-  {% else %}
+  {% elif plan.status == 'approved' %}
   <div
-    style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-top: 2.5rem; display: flex; align-items: center; gap: 0.75rem;">
-    <span style="font-size: 1.5rem;">🚀</span>
-    <div>
-      <strong style="color: var(--success);">This cluster plan is approved and active!</strong>
-      <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
-        {{ child_jobs | length }} article jobs are scheduled in the pipeline.
-      </p>
+    style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-top: 2.5rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <span style="font-size: 1.5rem;">🚀</span>
+      <div>
+        <strong style="color: var(--success);">This cluster plan is approved and active!</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+          {{ child_jobs | length }} article jobs are scheduled in the pipeline.
+        </p>
+      </div>
     </div>
+    <form action="/cluster-plans/{{ plan.id }}/pause" method="post" style="margin: 0;">
+      <button type="submit" class="btn btn--ghost" style="border: 1px solid var(--border); padding: 0.5rem 1rem;">⏸ Pause Plan</button>
+    </form>
+  </div>
+  {% elif plan.status == 'paused' %}
+  <div
+    style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-top: 2.5rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <span style="font-size: 1.5rem;">⏸</span>
+      <div>
+        <strong style="color: #fbbf24;">This cluster plan is currently paused.</strong>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+          The queued article jobs are paused and will not be processed until you resume the plan.
+        </p>
+      </div>
+    </div>
+    <form action="/cluster-plans/{{ plan.id }}/resume" method="post" style="margin: 0;">
+      <button type="submit" class="btn btn--primary" style="background: linear-gradient(135deg, var(--accent) 0%, #a78bfa 100%);">▶ Resume Plan</button>
+    </form>
   </div>
   {% endif %}
 

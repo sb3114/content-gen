@@ -78,6 +78,8 @@ class ArticleJob(SQLModel, table=True):
     newsletter_subject: Optional[str] = Field(default=None)
     newsletter_preheader: Optional[str] = Field(default=None)
     newsletter_html: Optional[str] = Field(default=None, sa_column=Column(Text))
+    generated_images: List[str] = Field(default=[], sa_column=Column(JSON))
+    selected_image: Optional[str] = Field(default=None)
 
     # ── HITL: user-edited fields ─────────────────────────────────────────
     reviewed_title: Optional[str] = Field(default=None)

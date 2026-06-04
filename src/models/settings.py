@@ -13,6 +13,10 @@ class CompanySettings(SQLModel, table=True):
     allow_fallback_to_haiku: bool = Field(default=True)
     rate_limit_banner: Optional[str] = Field(default=None)
     rate_limit_until: Optional[datetime] = Field(default=None)
+    gemini_api_key: Optional[str] = Field(default=None)
+    claude_api_key: Optional[str] = Field(default=None)
+    gemini_only_image_generation: bool = Field(default=True)
+
 
     
     # Brand Context
@@ -30,6 +34,7 @@ class CompanySettings(SQLModel, table=True):
     wp_app_password: Optional[str] = Field(default=None)
     wp_author_id: Optional[int] = Field(default=None)    # numeric WP user ID for published posts
     wp_author_name: Optional[str] = Field(default=None)  # display name for Article schema markup
+    yoast_plugin: bool = Field(default=False)
 
     # LinkedIn Credentials
     li_client_id: Optional[str] = Field(default=None)

@@ -175,13 +175,14 @@ async def call_llm(
                 raise
 
     else:
-        # Standard Gemini execution
-        import google.generativeai as genai
+        # Standard Gemini execution using google-genai
+        from google import genai
+        from google.genai import types
+        import hashlib
         from src.config import settings
 
-        genai.configure(api_key=settings.gemini_api_key)
+        client = genai.Client(api_key=settings.gemini_api_key)
 
-        # Map tiers to active Gemini config models
         gemini_model = settings.gemini_writing_model if tier == "sonnet" else settings.gemini_planning_model
         logger.info(f"Invoking Google Gemini: {gemini_model}")
 
@@ -190,15 +191,57 @@ async def call_llm(
             gen_config["response_mime_type"] = "application/json"
             if response_schema:
                 from src.pipeline.planning import _pydantic_to_genai_schema
-                gen_config["response_schema"] = _pydantic_to_genai_schema(response_schema)
+                schema_dict = _pydantic_to_genai_schema(response_schema)
+                gen_config["response_schema"] = schema_dict
 
-        model_inst = genai.GenerativeModel(
-            model_name=gemini_model,
-            generation_config=genai.GenerationConfig(**gen_config) if gen_config else None,
-            system_instruction=system_instruction
+        # Global dict for Gemini cache
+        global _gemini_caches
+        if '_gemini_caches' not in globals():
+            _gemini_caches = {}
+
+        # Prompt Caching logic for Gemini
+        cached_content_name = None
+        if system_instruction and len(system_instruction) > 1000:
+            h = hashlib.sha256((gemini_model + system_instruction).encode()).hexdigest()
+            if h in _gemini_caches:
+                try:
+                    c = await client.aio.caches.get(name=_gemini_caches[h])
+                    cached_content_name = c.name
+                    logger.info(f"Using existing Gemini cache: {cached_content_name}")
+                except Exception:
+                    pass
+            
+            if not cached_content_name:
+                try:
+                    logger.info("Creating new Gemini cache for system instruction...")
+                    cache = await client.aio.caches.create(
+                        model=gemini_model,
+                        contents=" ",
+                        config=types.CreateCachedContentConfig(
+                            system_instruction=system_instruction,
+                            ttl="3600s"
+                        )
+                    )
+                    cached_content_name = cache.name
+                    _gemini_caches[h] = cached_content_name
+                    logger.info(f"Created Gemini cache: {cached_content_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to create Gemini cache (will proceed without cache): {e}")
+
+        sys_instr_to_pass = None if cached_content_name else system_instruction
+
+        config_obj = types.GenerateContentConfig(**gen_config) if gen_config else types.GenerateContentConfig()
+        if sys_instr_to_pass:
+            config_obj.system_instruction = sys_instr_to_pass
+        if cached_content_name:
+            config_obj.cached_content = cached_content_name
+
+        response = await client.aio.models.generate_content(
+            model=gemini_model,
+            contents=prompt,
+            config=config_obj
         )
-
-        response = await model_inst.generate_content_async(prompt)
+        
         text = response.text.strip()
 
         if response_schema or use_json:

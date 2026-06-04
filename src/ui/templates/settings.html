@@ -133,6 +133,27 @@
         </div>
       </div>
 
+      <div class="grid-2" style="margin-top: 1rem;">
+        <div class="form-group">
+          <label class="form-label">Gemini API Key</label>
+          <input type="password" id="gemini_api_key" name="gemini_api_key" class="form-input" placeholder="AIzaSy••••••••••••" value="{{ settings.gemini_api_key or '' }}">
+          <p class="form-hint">Used for direct Gemini model calls (e.g. image generation and content steps).</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Claude API Key</label>
+          <input type="password" id="claude_api_key" name="claude_api_key" class="form-input" placeholder="sk-ant-sid01-••••••••••••" value="{{ settings.claude_api_key or '' }}">
+          <p class="form-hint">Used for Claude model operations if selected as the provider.</p>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-label" style="display:flex; align-items:center; gap:0.5rem;">
+          <span>Strictly use Gemini API for Image Generation</span>
+          <input type="checkbox" name="gemini_only_image_generation" value="true" {% if settings.gemini_only_image_generation %}checked{% endif %} style="margin:0; width:16px; height:16px; cursor:pointer;">
+        </label>
+        <p class="form-hint" style="margin-top: 0.4rem;">If checked, only Gemini API key credentials will be used for the Image Generation pipeline, regardless of the active LLM provider.</p>
+      </div>
+
       <div class="form-group" id="claude-token-group" style="margin-top:1rem;">
         <label class="form-label">Claude Code Setup Token</label>
         <input type="password" id="claude_setup_token" name="claude_setup_token" class="form-input" placeholder="sk-ant-oat01-••••••••••••" value="{{ settings.claude_setup_token or '' }}">
@@ -178,6 +199,14 @@
           <input type="text" name="wp_author_name" class="form-input" placeholder="e.g. Jane Smith" value="{{ settings.wp_author_name or '' }}">
           <p class="form-hint">Displayed in the JSON-LD Article schema on each published post.</p>
         </div>
+      </div>
+      
+      <div class="form-group" style="margin-top: 1rem; margin-bottom: 1rem;">
+        <label class="form-label" style="display:flex; align-items:center; gap:0.5rem;">
+          <span>Yoast Plugin</span>
+          <input type="checkbox" name="yoast_plugin" value="true" {% if settings.yoast_plugin %}checked{% endif %} style="margin:0; width:16px; height:16px; cursor:pointer;">
+        </label>
+        <p class="form-hint" style="margin-top: 0.4rem;">If enabled, Article Schema JSON-LD block is omitted (delegated to Yoast) and SEO title/description meta fields are populated via the Yoast plugin API.</p>
       </div>
 
       <!-- Connection Status Display -->

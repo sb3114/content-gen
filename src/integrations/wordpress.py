@@ -108,6 +108,30 @@ class WordPressClient:
                 for c in resp.json()
             ]
 
+    async def upload_media(
+        self,
+        filename: str,
+        media_bytes: bytes,
+        mime_type: str = "image/jpeg"
+    ) -> dict:
+        """
+        Upload media bytes to WordPress media library.
+        Returns the media object containing ID and link.
+        """
+        upload_headers = {
+            "Authorization": self.headers["Authorization"],
+            "Content-Type": mime_type,
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self.base}/media",
+                content=media_bytes,
+                headers=upload_headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def create_post(
         self,
         title: str,
@@ -118,12 +142,15 @@ class WordPressClient:
         category_ids: list[int] | None = None,
         author_id: int | None = None,
         author_name: str = "",
+        featured_media_id: int | None = None,
+        yoast_plugin_enabled: bool = False,
+        yoast_seo_title: str | None = None,
     ) -> dict:
         """
         Create and immediately publish a post on the self-hosted WP site.
 
         SEO fields (Yoast / RankMath) are written via the `meta` key.
-        Article JSON-LD schema is prepended to the post body.
+        Article JSON-LD schema is prepended to the post body unless Yoast is enabled.
         Returns {post_id, url, edit_url}.
         """
         # Resolve tag names → IDs (create if missing)
@@ -132,20 +159,41 @@ class WordPressClient:
         # Build slug from focus keyword (clean, readable, no dates)
         slug = _keyword_to_slug(focus_keyword or title)
 
-        # Build Article JSON-LD schema block
-        today_iso = date.today().isoformat()
-        safe_title = title.replace('"', '\\"')
-        safe_desc = meta_description.replace('"', '\\"')
-        safe_author = author_name.replace('"', '\\"')
-        schema_json = (
-            f'{{"@context":"https://schema.org","@type":"Article",'  
-            f'"headline":"{safe_title}",'  
-            f'"author":{{"@type":"Person","name":"{safe_author}"}},'  
-            f'"datePublished":"{today_iso}","dateModified":"{today_iso}",'  
-            f'"description":"{safe_desc}"}}'
-        )
-        schema_block = f'<script type="application/ld+json">{schema_json}</script>\n'
-        full_content = schema_block + html_content
+        # Build Article JSON-LD schema block if Yoast is NOT enabled
+        if not yoast_plugin_enabled:
+            today_iso = date.today().isoformat()
+            safe_title = title.replace('"', '\\"')
+            safe_desc = meta_description.replace('"', '\\"')
+            safe_author = author_name.replace('"', '\\"')
+            schema_json = (
+                f'{{"@context":"https://schema.org","@type":"Article",'  
+                f'"headline":"{safe_title}",'  
+                f'"author":{{"@type":"Person","name":"{safe_author}"}},'  
+                f'"datePublished":"{today_iso}","dateModified":"{today_iso}",'  
+                f'"description":"{safe_desc}"}}'
+            )
+            schema_block = f'<script type="application/ld+json">{schema_json}</script>\n'
+            full_content = schema_block + html_content
+        else:
+            full_content = html_content
+
+        meta_payload = {
+            # Yoast SEO fields
+            "_yoast_wpseo_focuskw": focus_keyword,
+            "_yoast_wpseo_metadesc": meta_description,
+            # RankMath fields (ignored if plugin absent)
+            "rank_math_focus_keyword": focus_keyword,
+            "rank_math_description": meta_description,
+        }
+
+        if yoast_plugin_enabled:
+            # Map meta description to yoast_wpseo_title as literally requested
+            meta_payload["yoast_wpseo_title"] = meta_description
+            # Map SEO title to _yoast_wpseo_title and yoast_wpseo_title (without underscore)
+            if yoast_seo_title:
+                meta_payload["_yoast_wpseo_title"] = yoast_seo_title
+            else:
+                meta_payload["_yoast_wpseo_title"] = title
 
         payload: dict = {
             "title": title,
@@ -153,19 +201,14 @@ class WordPressClient:
             "status": "publish",
             "slug": slug,
             "tags": tag_ids,
-            "meta": {
-                # Yoast SEO fields
-                "_yoast_wpseo_focuskw": focus_keyword,
-                "_yoast_wpseo_metadesc": meta_description,
-                # RankMath fields (ignored if plugin absent)
-                "rank_math_focus_keyword": focus_keyword,
-                "rank_math_description": meta_description,
-            },
+            "meta": meta_payload,
         }
         if category_ids:
             payload["categories"] = category_ids
         if author_id:
             payload["author"] = author_id
+        if featured_media_id is not None:
+            payload["featured_media"] = featured_media_id
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
@@ -195,6 +238,9 @@ class WordPressClient:
         category_ids: list[int] | None = None,
         author_id: int | None = None,
         author_name: str = "",
+        featured_media_id: int | None = None,
+        yoast_plugin_enabled: bool = False,
+        yoast_seo_title: str | None = None,
     ) -> dict:
         """
         Update an existing post in-place on the self-hosted WP site.
@@ -205,20 +251,39 @@ class WordPressClient:
         # Build slug from focus keyword
         slug = _keyword_to_slug(focus_keyword or title)
 
-        # Build Article JSON-LD schema block
-        today_iso = date.today().isoformat()
-        safe_title = title.replace('"', '\\"')
-        safe_desc = meta_description.replace('"', '\\"')
-        safe_author = author_name.replace('"', '\\"')
-        schema_json = (
-            f'{{"@context":"https://schema.org","@type":"Article",'  
-            f'"headline":"{safe_title}",'  
-            f'"author":{{"@type":"Person","name":"{safe_author}"}},'  
-            f'"datePublished":"{today_iso}","dateModified":"{today_iso}",'  
-            f'"description":"{safe_desc}"}}'
-        )
-        schema_block = f'<script type="application/ld+json">{schema_json}</script>\n'
-        full_content = schema_block + html_content
+        # Build Article JSON-LD schema block if Yoast is NOT enabled
+        if not yoast_plugin_enabled:
+            today_iso = date.today().isoformat()
+            safe_title = title.replace('"', '\\"')
+            safe_desc = meta_description.replace('"', '\\"')
+            safe_author = author_name.replace('"', '\\"')
+            schema_json = (
+                f'{{"@context":"https://schema.org","@type":"Article",'  
+                f'"headline":"{safe_title}",'  
+                f'"author":{{"@type":"Person","name":"{safe_author}"}},'  
+                f'"datePublished":"{today_iso}","dateModified":"{today_iso}",'  
+                f'"description":"{safe_desc}"}}'
+            )
+            schema_block = f'<script type="application/ld+json">{schema_json}</script>\n'
+            full_content = schema_block + html_content
+        else:
+            full_content = html_content
+
+        meta_payload = {
+            "_yoast_wpseo_focuskw": focus_keyword,
+            "_yoast_wpseo_metadesc": meta_description,
+            "rank_math_focus_keyword": focus_keyword,
+            "rank_math_description": meta_description,
+        }
+
+        if yoast_plugin_enabled:
+            # Map meta description to yoast_wpseo_title as literally requested
+            meta_payload["yoast_wpseo_title"] = meta_description
+            # Map SEO title to _yoast_wpseo_title and yoast_wpseo_title (without underscore)
+            if yoast_seo_title:
+                meta_payload["_yoast_wpseo_title"] = yoast_seo_title
+            else:
+                meta_payload["_yoast_wpseo_title"] = title
 
         payload: dict = {
             "title": title,
@@ -226,17 +291,14 @@ class WordPressClient:
             "status": "publish",
             "slug": slug,
             "tags": tag_ids,
-            "meta": {
-                "_yoast_wpseo_focuskw": focus_keyword,
-                "_yoast_wpseo_metadesc": meta_description,
-                "rank_math_focus_keyword": focus_keyword,
-                "rank_math_description": meta_description,
-            },
+            "meta": meta_payload,
         }
         if category_ids:
             payload["categories"] = category_ids
         if author_id:
             payload["author"] = author_id
+        if featured_media_id is not None:
+            payload["featured_media"] = featured_media_id
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(

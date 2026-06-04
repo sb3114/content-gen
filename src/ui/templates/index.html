@@ -100,7 +100,7 @@
 </div>
 
 {% set has_active_plans = false %}
-{% for plan in plans if plan.status != 'approved' %}
+{% for plan in plans if plan.status not in ['approved', 'paused'] %}
 {% set has_active_plans = true %}
 {% endfor %}
 
@@ -112,7 +112,7 @@
   </h2>
   <div class="plans-grid"
     style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md);">
-    {% for plan in plans if plan.status != 'approved' %}
+    {% for plan in plans if plan.status not in ['approved', 'paused'] %}
     <div class="plan-card"
       style="background: var(--surface-1); border: 1px solid var(--surface-2); border-radius: var(--radius-lg); padding: var(--spacing-lg); cursor: pointer; transition: transform 0.2s, border-color 0.2s; box-shadow: var(--shadow-sm); position: relative; display: flex; flex-direction: column; justify-content: space-between;"
       onclick="if(!event.target.closest('form')) window.location='/cluster-plans/{{ plan.id }}'"
@@ -302,7 +302,7 @@
 </script>
 
 {% set has_approved_plans = false %}
-{% for plan in plans if plan.status == 'approved' %}
+{% for plan in plans if plan.status in ['approved', 'paused'] %}
 {% set has_approved_plans = true %}
 {% endfor %}
 
@@ -316,19 +316,37 @@
 {% else %}
 <div class="job-grid">
   <!-- 1. Approved Consolidated 90-Day Content Plans -->
-  {% for plan in plans if plan.status == 'approved' %}
+  {% for plan in plans if plan.status in ['approved', 'paused'] %}
   {% set plan_jobs = plan_jobs_map.get(plan.id, []) %}
   <div class="job-card plan-card-approved"
-    style="border: 1.5px solid rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.02); cursor: pointer;"
+    style="border: 1.5px solid rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.02); cursor: pointer; {% if plan.status == 'paused' %}opacity: 0.85;{% endif %}"
     onclick="if(!event.target.closest('form') && !event.target.closest('details') && !event.target.closest('.link-chip')) window.location='/cluster-plans/{{ plan.id }}'">
     <div class="job-card__header">
       <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap: wrap;">
+        {% if plan.status == 'paused' %}
+        <span class="badge"
+          style="background: rgba(245, 158, 11, 0.12); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25);">⏸ Paused Plan</span>
+        {% else %}
         <span class="badge"
           style="background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25);">✅
           90-Day Plan</span>
+        {% endif %}
         <span class="job-card__date">{{ plan.created_at.strftime('%b %d, %H:%M') }}</span>
       </div>
       <div style="display: flex; align-items: center; gap: 0.25rem;">
+        {% if plan.status == 'approved' %}
+        <form action="/cluster-plans/{{ plan.id }}/pause" method="post" style="margin: 0;">
+          <button type="submit"
+            style="background:transparent; border:none; color:var(--text-dim); cursor:pointer; font-size:0.95rem; padding:0.2rem; opacity:0.7; transition:opacity 0.2s;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7" title="Pause cluster plan and all its queued jobs">⏸</button>
+        </form>
+        {% elif plan.status == 'paused' %}
+        <form action="/cluster-plans/{{ plan.id }}/resume" method="post" style="margin: 0;">
+          <button type="submit"
+            style="background:transparent; border:none; color:#818cf8; cursor:pointer; font-size:1.05rem; padding:0.2rem; opacity:0.8; transition:opacity 0.2s;"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8" title="Resume cluster plan jobs">▶</button>
+        </form>
+        {% endif %}
         <form action="/cluster-plans/{{ plan.id }}/delete" method="post"
           onsubmit="return confirm('Permanently delete this strategy plan?')" style="margin: 0;">
           <button type="submit"

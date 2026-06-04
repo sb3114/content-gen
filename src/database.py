@@ -91,6 +91,14 @@ async def init_db():
         await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS queue_end_hour INTEGER;"))
         await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS queue_timezone VARCHAR NOT NULL DEFAULT 'Europe/London';"))
 
+        # Image generation & API keys fields
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gemini_api_key VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS claude_api_key VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gemini_only_image_generation BOOLEAN NOT NULL DEFAULT TRUE;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS yoast_plugin BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS generated_images JSON;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS selected_image VARCHAR;"))
+
     try:
         # Alter ENUM types outside transaction blocks (PostgreSQL requires this)
         async with engine.connect() as conn:

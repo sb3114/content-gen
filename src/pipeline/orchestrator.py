@@ -29,6 +29,74 @@ async def _save(job_id: str, **kwargs):
             await session.commit()
 
 
+from urllib.parse import urlparse
+
+def get_site_title(wp_site_url: str) -> str:
+    if not wp_site_url:
+        return "BondNow"
+    try:
+        parsed = urlparse(wp_site_url)
+        host = parsed.netloc or parsed.path
+        if host.startswith("www."):
+            host = host[4:]
+        parts = host.split(".")
+        if parts:
+            return parts[0].capitalize()
+    except Exception:
+        pass
+    return "BondNow"
+
+
+async def generate_punchy_seo_title(title: str, focus_keyword: str, site_title: str, settings_obj) -> str:
+    from google import genai
+    api_key = settings_obj.gemini_api_key if settings_obj else None
+    if not api_key:
+        from src.config import settings as app_settings
+        api_key = app_settings.gemini_api_key
+    
+    if not api_key:
+        limit = 60 - 3 - len(site_title)
+        if len(title) > limit:
+            return title[:limit].rstrip()
+        return title
+
+    try:
+        client = genai.Client(api_key=api_key)
+        prompt = f"""You are an SEO expert. Generate a short, punchy SEO title tag under {60 - 3 - len(site_title)} characters for this blog article:
+        H1 Title: {title}
+        Focus Keyword: {focus_keyword}
+        
+        Rules:
+        1. The generated title MUST be strictly less than {60 - 3 - len(site_title)} characters.
+        2. It MUST include the focus keyword or main keywords from the title.
+        3. It must be highly engaging and click-worthy.
+        4. Return ONLY the title text itself without any quotes or explanations.
+        """
+        model_name = "gemini-2.0-flash"
+        if settings_obj and hasattr(settings_obj, "gemini_planning_model") and settings_obj.gemini_planning_model:
+            model_name = settings_obj.gemini_planning_model
+        else:
+            from src.config import settings as app_settings
+            if hasattr(app_settings, "gemini_planning_model") and app_settings.gemini_planning_model:
+                model_name = app_settings.gemini_planning_model
+        
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+        seo_title = response.text.strip().strip('"').strip("'")
+        limit = 60 - 3 - len(site_title)
+        if len(seo_title) > limit:
+            seo_title = seo_title[:limit].rstrip()
+        return seo_title
+    except Exception as e:
+        logger.warning(f"Failed to generate punchy SEO title: {e}. Falling back to truncated title.")
+        limit = 60 - 3 - len(site_title)
+        if len(title) > limit:
+            return title[:limit].rstrip()
+        return title
+
+
 # ── Phase 1: Research → Keyword Gate ─────────────────────────────────────────
 
 async def run_pipeline(job_id: str) -> None:
@@ -518,6 +586,20 @@ async def resume_pipeline(job_id: str) -> None:
             )
             logger.info(f"Job {job_id}: Step 5 (Newsletter Adaptation) completed successfully.")
 
+        # Generate the 3 image candidates for the review gate
+        try:
+            from src.pipeline.image_gen import generate_images_for_job
+            logger.info(f"Job {job_id}: Generating 3 image candidates...")
+            async with AsyncSessionLocal() as session:
+                db_job = await session.get(ArticleJob, job_id)
+                db_settings = await session.get(CompanySettings, 1)
+            images = await generate_images_for_job(db_job, db_settings=db_settings)
+            await _save(job_id, generated_images=images)
+            if images:
+                await _save(job_id, selected_image=images[0])
+        except Exception as img_err:
+            logger.error(f"Job {job_id}: Failed to generate initial images: {img_err}")
+
         # ── Gate: Auto-approve or Human Review ────────────────────────────────
         if auto_approve:
             logger.info(f"Job {job_id}: Skipping human review (auto_approve=True). Launching publication...")
@@ -595,6 +677,7 @@ async def publish_job(job_id: str) -> None:
         publish_newsletter = job.publish_newsletter
         wp_post_id = job.wp_post_id
         linkedin_post_id = job.linkedin_post_id  # existing post to replace on republish
+        selected_image = job.selected_image
 
         # Author info from settings
         author_id = settings_obj.wp_author_id if settings_obj else None
@@ -607,6 +690,20 @@ async def publish_job(job_id: str) -> None:
         newsletter_html = job.reviewed_newsletter_html or job.newsletter_html
 
     await _save(job_id, status=JobStatus.publishing)
+
+    # Load selected image bytes
+    image_bytes = None
+    featured_media_id = None
+    if selected_image:
+        import os
+        filepath = os.path.join("src/ui", selected_image.lstrip("/"))
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "rb") as f:
+                    image_bytes = f.read()
+                logger.info(f"Loaded selected image from {filepath} ({len(image_bytes)} bytes)")
+            except Exception as img_read_err:
+                logger.error(f"Failed to read selected image file: {img_read_err}")
 
     try:
         # Check if the content is already HTML to bypass markdown parser
@@ -624,6 +721,17 @@ async def publish_job(job_id: str) -> None:
         if publish_wordpress:
             wp = wp_client(db_settings=settings_obj)
             
+            # Upload to WordPress media library if image_bytes is loaded
+            if image_bytes:
+                try:
+                    filename = os.path.basename(filepath)
+                    logger.info(f"Job {job_id}: Uploading selected image to WordPress media library...")
+                    wp_media = await wp.upload_media(filename, image_bytes)
+                    featured_media_id = wp_media.get("id")
+                    logger.info(f"Job {job_id}: Featured media uploaded to WordPress. ID: {featured_media_id}")
+                except Exception as wp_img_err:
+                    logger.error(f"Job {job_id}: Failed to upload featured image to WordPress: {wp_img_err}")
+
             # Retrieve WordPress categories and automatically assign the most accurate one
             category_ids = []
             try:
@@ -657,6 +765,15 @@ Return ONLY the chosen numeric category ID as an integer. Do not write any other
             except Exception as e:
                 logger.error(f"Job {job_id}: Failed to dynamically select WordPress category: {e}")
 
+            yoast_plugin_enabled = settings_obj.yoast_plugin if settings_obj else False
+            yoast_seo_title = None
+            if yoast_plugin_enabled:
+                site_title = get_site_title(settings_obj.wp_site_url if settings_obj else None)
+                if len(title) + 3 + len(site_title) > 60:
+                    logger.info(f"Job {job_id}: Title is longer than 60 characters with site title. Generating shorter punchy version...")
+                    yoast_seo_title = await generate_punchy_seo_title(title, focus_kw, site_title, settings_obj)
+                    logger.info(f"Job {job_id}: Generated shorter SEO title: '{yoast_seo_title}'")
+
             if wp_post_id:
                 logger.info(f"Job {job_id}: WordPress post already exists (ID: {wp_post_id}). Updating in-place...")
                 wp_result = await wp.update_post(
@@ -669,6 +786,9 @@ Return ONLY the chosen numeric category ID as an integer. Do not write any other
                     category_ids=category_ids,
                     author_id=author_id,
                     author_name=author_name,
+                    featured_media_id=featured_media_id,
+                    yoast_plugin_enabled=yoast_plugin_enabled,
+                    yoast_seo_title=yoast_seo_title,
                 )
                 logger.info(f"Job {job_id}: WordPress post {wp_post_id} updated successfully at: {wp_result['url']}")
             else:
@@ -682,6 +802,9 @@ Return ONLY the chosen numeric category ID as an integer. Do not write any other
                     category_ids=category_ids,
                     author_id=author_id,
                     author_name=author_name,
+                    featured_media_id=featured_media_id,
+                    yoast_plugin_enabled=yoast_plugin_enabled,
+                    yoast_seo_title=yoast_seo_title,
                 )
                 await _save(
                     job_id,
@@ -712,6 +835,7 @@ Return ONLY the chosen numeric category ID as an integer. Do not write any other
             li_result = await li.post_article(
                 post_text=li_text,
                 author_urn=author_urn,
+                image_bytes=image_bytes,
             )
             post_urn = li_result.get("post_id", "")
             await _save(

@@ -381,6 +381,48 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
             {% endif %} />
         </div>
 
+        <!-- Image Selection Gallery -->
+        <div class="form-group" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+          <label class="form-label" style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+            🖼️ Select Post Featured &amp; Social Image
+          </label>
+          
+          {% if job.generated_images %}
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 0.5rem;">
+            {% for img_path in job.generated_images %}
+            <label style="position: relative; cursor: pointer; border-radius: 8px; overflow: hidden; border: 3px solid {% if job.selected_image == img_path %}var(--primary){% else %}var(--border){% endif %}; transition: all 0.2s ease; display: block;" class="image-option">
+              <input type="radio" name="selected_image" value="{{ img_path }}" {% if job.selected_image == img_path %}checked{% endif %} style="position: absolute; top: 8px; left: 8px; z-index: 10; cursor: pointer; width: 18px; height: 18px; accent-color: var(--primary);" onclick="selectImageCard(this)">
+              <img src="{{ img_path }}" style="width: 100%; aspect-ratio: 1; object-fit: cover; display: block; transition: transform 0.3s ease;">
+              {% if job.selected_image == img_path %}
+              <div style="position: absolute; bottom: 8px; right: 8px; background: var(--primary); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">✓</div>
+              {% endif %}
+            </label>
+            {% endfor %}
+          </div>
+          
+          {% if is_editable %}
+          <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: flex-end;">
+            <div style="flex: 1;">
+              <input type="text" id="image-feedback" placeholder="Describe how to regenerate images (optional)..." class="form-input" style="font-size: 0.85rem; padding: 0.5rem 0.75rem; width: 100%;">
+            </div>
+            <button type="button" class="btn btn--ghost" style="padding: 0.5rem 1rem; white-space: nowrap; height: 38px; display: flex; align-items: center; gap: 0.35rem;" onclick="regenerateImages('{{ job.id }}')">
+              🔄 Regenerate
+            </button>
+          </div>
+          {% endif %}
+          
+          {% else %}
+          <div style="padding: 1.5rem; background: var(--bg-body); border: 1px dashed var(--border); border-radius: var(--radius); text-align: center; color: var(--text-dim);">
+            <p style="margin: 0;">No images generated yet.</p>
+            {% if is_editable %}
+            <button type="button" class="btn btn--primary" style="margin-top: 0.75rem; font-size: 0.85rem;" onclick="regenerateImages('{{ job.id }}')">
+              🎨 Generate Images
+            </button>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+
         <div class="editor-refining-wrapper" id="article-refining-wrap">
           <div class="form-group" style="position: relative;">
             <textarea id="reviewed_markdown" name="reviewed_markdown" class="form-textarea form-textarea--tall"
@@ -660,6 +702,11 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
       onclick="return confirm('Reject this article?')">
       ✕ Reject
     </button>
+    {% if job.wp_post_id or job.linkedin_post_id or job.newsletter_campaign_id or job.gbp_post_name %}
+    <button type="submit" formaction="/jobs/{{ job.id }}/cancel-review" class="btn btn--ghost">
+      ✕ Cancel Review
+    </button>
+    {% endif %}
     <button type="submit" class="btn btn--primary btn--large">
       ✓ Approve &amp; Publish
     </button>
@@ -674,6 +721,44 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
 {% endif %}
 
 <script>
+  function selectImageCard(radio) {
+    const cards = radio.closest('.form-group').querySelectorAll('.image-option');
+    cards.forEach(card => {
+      card.style.borderColor = 'var(--border)';
+      const check = card.querySelector('div');
+      if (check) check.remove();
+    });
+    const selected = radio.closest('.image-option');
+    selected.style.borderColor = 'var(--primary)';
+    
+    const check = document.createElement('div');
+    check.style.cssText = 'position: absolute; bottom: 8px; right: 8px; background: var(--primary); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);';
+    check.innerHTML = '✓';
+    selected.appendChild(check);
+  }
+
+  function regenerateImages(jobId) {
+    const feedback = document.getElementById('image-feedback')?.value || '';
+    
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/jobs/${jobId}/regenerate_images`;
+    
+    const feedbackInput = document.createElement('input');
+    feedbackInput.type = 'hidden';
+    feedbackInput.name = 'feedback';
+    feedbackInput.value = feedback;
+    form.appendChild(feedbackInput);
+    
+    // Add simple inline spinner
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = 'Generating...';
+    
+    document.body.appendChild(form);
+    form.submit();
+  }
+
   function showTab(tabName) {
     const editBtn = document.getElementById('tab-edit');
     const previewBtn = document.getElementById('tab-preview');

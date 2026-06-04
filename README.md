@@ -1,131 +1,325 @@
 # Content Engine
 
-AI-powered article generation and publishing platform built with FastAPI, PostgreSQL, and Google Gemini.
+> **AI-powered autonomous content pipeline** — researches, plans, writes, and publishes SEO-optimised blog posts to WordPress, LinkedIn, and email newsletters with human-in-the-loop review gates.
 
-## 🏗️ Architecture & Codebase
-
-The application is structured as a modular asynchronous API:
-
-*   **`src/api/`**: Contains the FastAPI route handlers.
-    *   `jobs.py`: Endpoints to create, track, and manage AI content generation jobs.
-    *   `auth.py`: Endpoints for managing authentication (e.g., LinkedIn OAuth, WordPress).
-*   **`src/pipeline/`**: The core AI orchestration engine.
-    *   `orchestrator.py`: Manages the overall workflow and state transitions of a content job.
-    *   `research.py`, `planning.py`, `writing.py`, `refinement.py`: Specific stages of the AI content generation process.
-    *   `summarize.py`: Automatically summarizes context (e.g., company context) for the AI memory.
-    *   `linkedin_adapt.py`: Transforms the generated content into LinkedIn-ready formats.
-*   **`src/integrations/`**: Connectors for external services.
-    *   `keywords.py`: Logic for researching topics via Google Trends and SEO APIs.
-    *   `wordpress.py`, `linkedin.py`, `brevo.py`: API clients for publishing platforms.
-*   **`src/models/`**: Database models (SQLAlchemy/SQLModel) for `Job` and `Settings`.
-*   **`src/database.py`**: PostgreSQL database connection and session management using `asyncpg`.
-*   **`src/ui/`**: Frontend components, including `static` assets (CSS/JS) and `templates`.
-
-## 🔍 Advanced 5-Stage SEO Research & Discovery Pipeline
-
-The system contains an automated, touchless **5-Stage SEO Discovery and Trend Verification Pipeline** (`src/integrations/keywords.py`) designed to identify high-potential, brand-aligned, and low-competition "Golden Ratio" keywords in the target market.
-
-### 🌐 Dynamic Geography & Language Targeting
-By default, all keyword metrics, competitor discoveries, and long-tail ideas are dynamically configured in [config.py](file:///home/shirish/Documents/development/content-creator/content-creator/src/config.py) to target specific local markets:
-- **Default Target**: **United Kingdom (UK)** (Location Code: `2826`, Language: `en`).
-- Fully customizable to prioritize localized search volumes and intent rather than generic international data.
+Built with **FastAPI · PostgreSQL · Google Gemini · Claude · Docker**.
 
 ---
 
-### 🚀 How the 5-Stage Pipeline Works:
+## Table of Contents
 
-#### 1️⃣ Stage 1: Competitor Discovery & Niche Filtering
-- Takes your initial topic string and queries the **DataForSEO Google Organic Live SERP API** (`v3/serp/google/organic/live/advanced`).
-- Extracts root domains of the top 3 ranking organic sites.
-- **Niche Competitor Domain Filter**: Programmatically filters out giant generic authorities (like `amazon.com`, `nytimes.com`, `wikipedia.org`, `nih.gov`, `youtube.com`) to isolate **highly specialized niche blogs, local platforms, and domain competitors** (e.g. `smartcaregiver.com`, `agespace.org`), keeping our source keywords highly relevant.
-
-#### 2️⃣ Stage 2: Competitor Keyword Scrape & Brand Cleanse
-- Queries the **DataForSEO Ranked Keywords API** (`v3/dataforseo_labs/google/ranked_keywords/live`) for each discovered competitor.
-- Restricts scraping to high-performing pages (positions 1-5).
-- **Brand Cleanse & Noise Scrubbing**: Programmatically strips out phrases containing competitor names (e.g., if scraping `aplaceformom.com`, brand phrases like `"a place for mom senior advisors"` are omitted).
-- **Clinical & Character Filter**: Scrubs out decimal coordinates, drug/clinical percent codes, decimals, and special character strings (e.g. `"0.9 sodium chloride"`, `"027/nap1/bi"`) that cause DataForSEO validation errors and system crashes.
-
-#### 3️⃣ Stage 3: Keyword Universe Expansion (Granular Long-Tails)
-- Aggregates the remaining competitor terms and slices them to the top 30 candidates.
-- Queries the **DataForSEO Keyword Ideas API** (`v3/dataforseo_labs/google/keyword_ideas/live`) to generate highly granular long-tail variations.
-- **Single POST Call Optimization**: Submits candidate seeds in a single nested batch request to keep processing highly cost-effective and hyper-fast.
-
-#### 4️⃣ Stage 4: Metric Sorting & Trajectory Trend Verification
-- Filters the master long-tail list using strict bounds: **Keyword Difficulty (KD) <= 35** and **Search Volume >= 300**.
-- Integrates parallel **Google Trends (pytrends)** batch lookups (groups of 5) to calculate a **90-day trajectory slope** of interest over time using linear regression.
-- Discards declining trends (`slope < -0.5`), keeping only growing or stable queries.
-
-#### 5️⃣ Stage 5: AI Brand-Relevance Filter & Sequential Scheduling
-- Passes surviving candidates to Gemini along with **BondNow's brand description, ICPs, and core marketing pillars** loaded dynamically from settings.
-- Gemini acts as our **AI Chief SEO Strategist**, analyzing search intent against company values, discarding off-topic candidate queries, and choosing the single best **"Golden Ratio" Focus Keyword**.
-- Queries the calendar state via `get_next_open_slot` to determine the latest scheduled post, and schedules the new job sequentially at **9:00 AM** on the next available open day.
+- [Features](#-features)
+- [Architecture Overview](#-architecture-overview)
+- [Project Structure](#-project-structure)
+- [Tech Stack](#-tech-stack)
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration)
+- [How It Works](#-how-it-works)
+- [Publishing Integrations](#-publishing-integrations)
+- [SEO Pipeline](#-advanced-5-stage-seo-research--discovery-pipeline)
+- [Chat Agent](#-chat-agent)
+- [Documentation](#-documentation)
+- [Data Persistence](#-data-persistence)
 
 ---
 
-### ✏️ Post-Schedule Editing & Target Recalculation
+## ✨ Features
 
-Even after a task is approved or scheduled, you retain full editorial control over your content:
-- **Interactive Editing**: The article title, body, LinkedIn draft, and newsletter fields remain fully editable, featuring a persistent `💾 Save Content Changes` button.
-- **Target-based Recalculation Pipeline**: Modifying publish targets in the top Edit Panel dynamically recalculates assets:
-  - **Added Targets**: Checking a new publish target (e.g., checking LinkedIn or Newsletter) spawns an **asynchronous LLM adaptation background task** to immediately generate high-quality tailored drafts based on the active article content.
-  - **Removed Targets**: Unchecking a publish target instantly cleanses and purges its draft content from the database.
+| Feature | Description |
+|---|---|
+| **Autonomous Content Pipeline** | End-to-end: keyword research → planning → writing → LinkedIn/newsletter adaptation → image generation → publish |
+| **Human-in-the-Loop Gates** | Mandatory review checkpoints at keyword selection and final content approval |
+| **90-Day Content Strategy** | Chat agent generates and schedules a full Hub & Spoke content cluster plan |
+| **Multi-Channel Publishing** | Simultaneous publish to WordPress (self-hosted), LinkedIn, and Brevo email newsletters |
+| **Yoast SEO Integration** | Native Yoast meta field updates (`_yoast_wpseo_title`, `_yoast_wpseo_metadesc`) with automatic punchy title generation for long H1s |
+| **AI Image Generation** | Generates 3 candidate images per article using Gemini Imagen; user selects the best |
+| **Style Memory** | Learns from your manual edits and feedback to improve future articles automatically |
+| **LLM Provider Switching** | Toggle between Google Gemini and Claude (Sonnet/Haiku tiers) in Settings — no code changes |
+| **Sequential Job Queue** | Rate-limit-aware, paced job scheduler with stale-job recovery |
+| **Brand Context Injection** | All LLM calls are grounded in your company description, ICP, tone of voice, and core pillars |
 
 ---
 
-### 📊 Integrated SEO Stats & Metrics Dashboard (UI/UX)
-All live SEO metrics are persistently available across all states (Scheduled, Published, Approved) in a premium collapsable details panel:
-- **Focus Golden Ratio Keyword Banner**: Highlighted in beautiful neon HSL gradients with UK targeting indicators, monthly volume metrics, trend trajectory graphs, and the complete AI Chief Strategist Rationale.
-- **Discovered Competitors**: Links directly to the organic sources we scraped.
-- **Top Candidates Table**: Custom-styled rows displaying candidates that survived threshold bounds with color-coded difficulty badges.
+## 🏗️ Architecture Overview
 
-## 🚀 How to Start the App
+The application uses **two distinct execution models**:
 
-The application is containerized using Docker and Docker Compose, making it easy to run.
+### 1. Deterministic Content Pipeline
+A fixed, resumable sequence of stages driven by `orchestrator.py`. Each stage is an independent Python module that reads from the database, makes one LLM call, saves its output, and exits. If a stage crashes, it restarts exactly where it left off.
+
+```
+Research → Planning → Writing → LinkedIn Adapt → Newsletter Adapt → Image Gen
+    ↓                                                                      ↓
+Keyword Gate (human review)                              Content Review Gate (human)
+                                                                           ↓
+                                                                      Publish
+```
+
+### 2. Agentic Chat Interface
+A multi-turn, tool-calling conversational loop powered by Gemini native function calling (or a custom Claude equivalent). The LLM decides which tools to call based on natural language — it is not scripted.
+
+> 📄 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full system walkthrough including all prompt locations, scheduler logic, and the cluster planning pipeline.
+
+> 📄 See [`docs/ARCHITECTURE_ASSESSMENT.md`](docs/ARCHITECTURE_ASSESSMENT.md) for a critical assessment of the current design with pros, cons, and a recommended migration roadmap.
+
+---
+
+## 📁 Project Structure
+
+```
+content-creator/
+├── src/
+│   ├── main.py                    # FastAPI app entrypoint & lifespan
+│   ├── config.py                  # Pydantic settings (env vars)
+│   ├── database.py                # Async SQLAlchemy engine & migrations
+│   │
+│   ├── api/
+│   │   ├── jobs.py                # All job CRUD, review, publish endpoints
+│   │   ├── agent.py               # Chat agent SSE API
+│   │   ├── auth.py                # LinkedIn & Google OAuth flows
+│   │   └── calendar.py            # Calendar view endpoint
+│   │
+│   ├── pipeline/
+│   │   ├── orchestrator.py        # Phase 1 & 2 pipeline conductor
+│   │   ├── scheduler.py           # APScheduler job queue & polling loops
+│   │   ├── llm.py                 # LLM router (Gemini / Claude)
+│   │   ├── research.py            # Step 1: keyword research + scraping
+│   │   ├── planning.py            # Step 2: content plan generation
+│   │   ├── writing.py             # Step 3: full article generation
+│   │   ├── linkedin_adapt.py      # Step 4: LinkedIn post adaptation
+│   │   ├── newsletter_adapt.py    # Step 5: email newsletter adaptation
+│   │   ├── image_gen.py           # Step 5.5: AI image generation (Gemini Imagen)
+│   │   ├── refinement.py          # Review-page editor (user feedback → LLM edit)
+│   │   ├── cluster_orchestrator.py# 90-day Hub & Spoke cluster planner
+│   │   ├── agent.py               # Chat agent tools & session management
+│   │   ├── memory.py              # Style memory + brand context cache
+│   │   ├── summarize.py           # Published content cross-link memory
+│   │   └── scheduling.py          # Calendar slot calculation utilities
+│   │
+│   ├── integrations/
+│   │   ├── wordpress.py           # WordPress REST API client
+│   │   ├── linkedin.py            # LinkedIn API client
+│   │   ├── brevo.py               # Brevo email API client
+│   │   ├── keywords.py            # DataForSEO + pytrends keyword research
+│   │   ├── scraper.py             # trafilatura competitor scraper
+│   │   └── google.py             # Google Search Console & Business Profile
+│   │
+│   ├── models/
+│   │   ├── job.py                 # ArticleJob & ClusterPlan SQLModel tables
+│   │   └── settings.py            # CompanySettings SQLModel table
+│   │
+│   ├── schemas/
+│   │   └── content_plan.py        # Pydantic schemas (ContentPlan, LinkedInPostSchema, etc.)
+│   │
+│   └── ui/
+│       ├── templates/             # Jinja2 HTML templates
+│       └── static/                # CSS, JS, generated images
+│
+├── data/
+│   └── agent_memory/              # Style memory & brand context cache files
+│
+├── docs/
+│   ├── ARCHITECTURE.md            # Full system architecture walkthrough
+│   └── ARCHITECTURE_ASSESSMENT.md # Critical assessment & recommended improvements
+│
+├── scripts/
+│   └── set-secrets.sh.example     # Shell secrets template
+│
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── .env.example
+```
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Web Framework** | FastAPI 0.115 (async, Pydantic v2) |
+| **Database** | PostgreSQL 16 via asyncpg + SQLModel |
+| **LLM — Gemini** | `google-generativeai` + `google-genai` SDK |
+| **LLM — Claude** | Claude CLI (subprocess via OAuth token) |
+| **Image Generation** | Gemini Imagen (`google-genai` SDK) |
+| **Keyword Research** | DataForSEO API + pytrends |
+| **Competitor Scraping** | trafilatura |
+| **Scheduling** | APScheduler (AsyncIOScheduler) |
+| **Email** | Brevo (Sendinblue) API |
+| **Templating** | Jinja2 |
+| **Containerisation** | Docker + Docker Compose |
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
-1.  [Docker](https://docs.docker.com/get-docker/) installed.
-2.  [Docker Compose](https://docs.docker.com/compose/install/) installed.
+- [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/install/)
+- A Google Gemini API key (`GEMINI_API_KEY`)
+- WordPress site with Application Passwords enabled
+- LinkedIn OAuth credentials
 
-### Setup
+### 1. Clone and configure
 
-1.  **Environment Variables (Non-Sensitive):**
-    Copy the example `.env` file to set up basic configuration.
-    ```bash
-    cp .env.example .env
-    ```
+```bash
+# Copy example env file
+cp .env.example .env
 
-2.  **Secrets:**
-    Sensitive keys like `GEMINI_API_KEY`, `POSTGRES_PASSWORD`, etc., should not be saved in the `.env` file. You need to export them to your shell environment before starting Docker Compose. 
-    You can create a `scripts/set-secrets.sh` (using `.example` if available) and source it:
-    ```bash
-    source scripts/set-secrets.sh
-    ```
-    Alternatively, export them manually:
-    ```bash
-    export POSTGRES_PASSWORD="your-strong-password"
-    export GEMINI_API_KEY="your-gemini-api-key"
-    export SECRET_KEY="your-secret-key"
-    # Export other required variables (WordPress, LinkedIn) as needed
-    ```
+# Copy and fill in your secrets
+cp scripts/set-secrets.sh.example scripts/set-secrets.sh
+# Edit set-secrets.sh with your actual values, then:
+source scripts/set-secrets.sh
+```
 
-### Running the Application
+### 2. Required environment variables
 
-Once your environment variables are configured, start the application and database using:
+These must be exported to your shell before running Docker Compose:
+
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+export POSTGRES_PASSWORD="your-strong-db-password"
+export SECRET_KEY="your-random-secret-key"
+export WORDPRESS_USERNAME="your-wp-username"
+export WORDPRESS_APP_PASSWORD="xxxx xxxx xxxx xxxx xxxx xxxx"
+export LINKEDIN_CLIENT_ID="your-linkedin-client-id"
+export LINKEDIN_CLIENT_SECRET="your-linkedin-client-secret"
+
+# Optional
+export DATAFORSEO_LOGIN="your-dataforseo-login"
+export DATAFORSEO_PASSWORD="your-dataforseo-password"
+```
+
+### 3. Start the application
 
 ```bash
 docker compose up --build
 ```
 
-*(Add `-d` to run in detached mode).*
+Add `-d` for detached mode.
 
-*   **API / App Interface:** `http://localhost:8080`
-*   **PostgreSQL Database:** Running on port `5433` on the host (mapped from `5432` in the container).
+| Service | URL |
+|---|---|
+| **App** | http://localhost:8080 |
+| **PostgreSQL** | `localhost:5433` |
+
+> On first start, `init_db()` runs all schema migrations automatically. No manual migration steps needed.
+
+---
+
+## ⚙️ Configuration
+
+All runtime settings (LLM provider, WordPress credentials, LinkedIn tokens, Brevo API, etc.) are managed through the **Settings page** in the UI at `/settings`. Changes are persisted to the `company_settings` database table and take effect immediately.
+
+### Settings categories
+
+| Section | What it configures |
+|---|---|
+| **Brand & Strategy** | Company description, marketing strategy, ICP, tone of voice, core pillars |
+| **LLM Settings** | Provider (Gemini/Claude), API keys, model fallback behaviour, image generation restrictions |
+| **WordPress** | Site URL, username, application password, author ID/name, Yoast Plugin toggle |
+| **LinkedIn OAuth** | Client ID/secret, access token, person URN |
+| **Brevo Email** | API key, sender details, contact list IDs |
+| **DataForSEO** | Login credentials for live keyword research |
+| **Queue Window** | Permitted hours for autonomous job processing |
+
+---
+
+## ⚙️ How It Works
+
+### Job Lifecycle
+
+```
+queued → running → (keyword gate) → pending_review → resuming →
+    (content review gate) → pending_review → approved → publishing → published
+```
+
+Each status transition corresponds to a specific pipeline action. The UI reflects the current `status` and `current_step` in real time.
+
+### LLM Tiers
+
+All LLM calls route through `src/pipeline/llm.py`:
+
+| Tier | Gemini | Claude | Used for |
+|---|---|---|---|
+| `sonnet` | `gemini-2.5-pro` | `claude-sonnet` | Planning, writing, strategy (high quality) |
+| `haiku` | `gemini-2.0-flash` | `claude-haiku` | Tags, metadata, categorisation (fast & cheap) |
+
+Switch between Gemini and Claude in Settings with zero code changes.
+
+### Style Memory (Self-Improving Writer)
+
+Every time you manually edit an article on the review page, the system diffs your changes against the AI's original draft, extracts writing rules, and saves them to `data/agent_memory/style_learning_memory.md`. These rules are injected into every future writing call — the writer learns your preferences over time.
+
+---
+
+## 📤 Publishing Integrations
+
+### WordPress
+- Creates or updates posts via the WordPress REST API (`/wp-json/wp/v2/posts`).
+- Sets Yoast SEO fields (`_yoast_wpseo_metadesc`, `_yoast_wpseo_title`) natively if the **Yoast Plugin** toggle is enabled in Settings.
+- When Yoast is enabled, the Article JSON-LD schema block is omitted (Yoast handles it).
+- Automatically generates a shorter punchy SEO title via LLM if the H1 + site title exceeds 60 characters.
+- Uploads featured images to the WordPress media library.
+- Auto-assigns the most relevant category using LLM classification.
+
+### LinkedIn
+- Posts the adapted article text using the LinkedIn Share API.
+- Moves article URLs to the **first comment** (not embedded in the post body) per best practices.
+- Ends the post body with "Discover more in comments".
+
+### Brevo (Email Newsletter)
+- Sends HTML newsletters to configured Brevo contact lists.
+- Supports two modes: `update` (fresh article summary) and `summary` (weekly/monthly digest of published posts).
+
+---
+
+## 🔍 Advanced 5-Stage SEO Research & Discovery Pipeline
+
+The system runs an automated **5-Stage SEO Discovery Pipeline** (`src/integrations/keywords.py`) to find high-potential, low-competition "Golden Ratio" keywords:
+
+| Stage | What Happens |
+|---|---|
+| **1. Competitor Discovery** | Queries DataForSEO SERP API for the topic; extracts top 3 niche competitor domains (filters out Wikipedia, Amazon, etc.) |
+| **2. Competitor Keyword Scrape** | Fetches ranked keywords for each competitor domain (positions 1–5); strips brand names and clinical noise |
+| **3. Keyword Universe Expansion** | Aggregates top 30 candidates and queries DataForSEO Keyword Ideas API for long-tail variations |
+| **4. Metric Sorting & Trend Verification** | Filters by KD ≤ 35 and Volume ≥ 300; validates 90-day trajectory via pytrends linear regression |
+| **5. AI Brand-Relevance Filter** | Gemini acts as AI SEO Strategist, validates intent against brand pillars, selects the single best Golden Ratio keyword |
+
+All research targets the **United Kingdom (UK)** market by default (configurable in `src/config.py`).
+
+---
+
+## 💬 Chat Agent
+
+The Agent page (`/agent`) provides a natural-language interface to manage the content pipeline. The agent is powered by Gemini native function calling (or a custom Claude implementation) and can:
+
+- **Create jobs** — "Schedule 3 articles about dementia care for next week"
+- **List & manage jobs** — "What jobs are currently pending review?"
+- **Generate 90-day plans** — "Create a Hub & Spoke content strategy around elderly home safety"
+- **Approve & schedule clusters** — "Approve the latest plan and publish to WordPress and LinkedIn"
+
+The agent's system prompt is dynamically built from your brand settings, keeping all suggestions aligned with your company context, ICP, and core pillars.
+
+---
+
+## 📄 Documentation
+
+| Document | Description |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Full system architecture: pipeline stages, scheduler, LLM router, agent, memory system, prompt locations |
+| [`docs/ARCHITECTURE_ASSESSMENT.md`](docs/ARCHITECTURE_ASSESSMENT.md) | Critical assessment: pros/cons of current design, recommended improvements, framework evaluation, token cost optimisation strategies |
+
+---
 
 ## 💾 Data Persistence
 
-To ensure that your PostgreSQL database data is not lost when containers are restarted or removed, the database uses a **local bind mount**.
+| Data | Location | Notes |
+|---|---|---|
+| **Database** | `./pgdata/` (bind mount) | All jobs, settings, cluster plans. Back this up. Delete to reset. |
+| **Style Memory** | `./data/agent_memory/style_learning_memory.md` | Writer style rules learned from your edits |
+| **Brand Cache** | `./data/agent_memory/brand_context_memory.json` | Cached brand settings for fast prompt construction |
+| **Generated Images** | `./src/ui/static/generated_images/` | AI-generated article images |
+| **Cluster Memory Logs** | `./data/agent_memory/plan_<id>_keywords.md` | Keyword discovery logs per cluster plan |
 
-*   Database data is persisted in the `./pgdata` directory at the root of the project.
-*   You can back up this folder to save all database state. 
-*   If you delete the `./pgdata` folder, your database will be reset to a fresh state.
+> ⚠️ The `./data/` directory is volume-mounted into the container. Ensure it persists across deployments.

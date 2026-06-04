@@ -101,23 +101,81 @@ class LinkedInClient:
             "days_remaining": days_remaining,
         }
 
+    async def upload_image(self, author_urn: str, image_bytes: bytes) -> str:
+        """Register and upload image to LinkedIn. Returns the digitalmediaAsset URN."""
+        register_payload = {
+            "registerUploadRequest": {
+                "owner": author_urn,
+                "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                "serviceRelationships": [
+                    {
+                        "identifier": "urn:li:userGeneratedContent",
+                        "relationshipType": "OWNER"
+                    }
+                ]
+            }
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Step 1: Register upload
+            reg_resp = await client.post(
+                f"{LI_API}/assets?action=registerUpload",
+                json=register_payload,
+                headers=self.headers
+            )
+            reg_resp.raise_for_status()
+            reg_data = reg_resp.json()
+            
+            value = reg_data.get("value", {})
+            asset_urn = value.get("asset", "")
+            upload_mech = value.get("uploadMechanism", {})
+            http_upload = upload_mech.get("com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {})
+            upload_url = http_upload.get("uploadUrl", "")
+            
+            if not asset_urn or not upload_url:
+                raise ValueError("Could not extract asset URN or upload URL from LinkedIn registration response.")
+                
+            # Step 2: Upload binary image data
+            upload_headers = {
+                "Content-Type": "image/jpeg"
+            }
+            up_resp = await client.put(
+                upload_url,
+                content=image_bytes,
+                headers=upload_headers
+            )
+            up_resp.raise_for_status()
+            
+            return asset_urn
+
     async def post_article(
-        self, post_text: str, author_urn: str
+        self, post_text: str, author_urn: str, image_bytes: bytes | None = None
     ) -> dict:
-        """Create a text-only UGC post (previously linked directly to the article)."""
+        """Create a UGC post. If image_bytes is provided, upload the image first and attach it."""
+        media_urn = None
+        if image_bytes:
+            media_urn = await self.upload_image(author_urn, image_bytes)
+
         payload = {
             "author": author_urn,
             "lifecycleState": "PUBLISHED",
             "specificContent": {
                 "com.linkedin.ugc.ShareContent": {
                     "shareCommentary": {"text": post_text},
-                    "shareMediaCategory": "NONE",
+                    "shareMediaCategory": "IMAGE" if media_urn else "NONE",
                 }
             },
             "visibility": {
                 "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
             },
         }
+
+        if media_urn:
+            payload["specificContent"]["com.linkedin.ugc.ShareContent"]["media"] = [
+                {
+                    "status": "READY",
+                    "media": media_urn,
+                }
+            ]
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(

@@ -20,6 +20,7 @@ from src.models.settings import CompanySettings
 from src.pipeline.orchestrator import publish_job, run_pipeline, resume_pipeline
 from src.pipeline.refinement import run_refinement
 from src.pipeline.scheduling import schedule_writing_jobs
+from src.pipeline.scheduler import assign_queue_positions
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/ui/templates")
@@ -48,6 +49,10 @@ async def save_settings(
     company_description: str = Form(None),
     llm_provider: str = Form("gemini"),
     claude_setup_token: str = Form(None),
+    gemini_api_key: str = Form(None),
+    claude_api_key: str = Form(None),
+    gemini_only_image_generation: bool = Form(False),
+    yoast_plugin: bool = Form(False),
     allow_fallback_to_haiku: bool = Form(False),
     wp_site_url: str = Form(None),
     wp_username: str = Form(None),
@@ -98,6 +103,10 @@ async def save_settings(
     # Update LLM Settings
     settings_obj.llm_provider = llm_provider
     if claude_setup_token is not None: settings_obj.claude_setup_token = claude_setup_token.strip() or None
+    if gemini_api_key is not None: settings_obj.gemini_api_key = gemini_api_key.strip() or None
+    if claude_api_key is not None: settings_obj.claude_api_key = claude_api_key.strip() or None
+    settings_obj.gemini_only_image_generation = gemini_only_image_generation
+    settings_obj.yoast_plugin = yoast_plugin
     settings_obj.allow_fallback_to_haiku = allow_fallback_to_haiku
 
     # Update Credentials
@@ -328,6 +337,7 @@ async def approve_job(
     reviewed_linkedin: str = Form(None),
     reviewed_newsletter_subject: str = Form(None),
     reviewed_newsletter_html: str = Form(None),
+    selected_image: str = Form(None),
 ):
     job = await session.get(ArticleJob, job_id)
     if not job:
@@ -350,6 +360,7 @@ async def approve_job(
     if reviewed_linkedin: job.reviewed_linkedin = reviewed_linkedin
     if reviewed_newsletter_subject: job.reviewed_newsletter_subject = reviewed_newsletter_subject
     if reviewed_newsletter_html: job.reviewed_newsletter_html = reviewed_newsletter_html
+    if selected_image: job.selected_image = selected_image
     if job.scheduled_at and job.scheduled_at > datetime.utcnow():
         job.status = JobStatus.scheduled
     else:
@@ -455,6 +466,24 @@ async def reject_job(session: Session, job_id: str):
     return RedirectResponse(url="/", status_code=303)
 
 
+# ── Cancel Review ─────────────────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/cancel-review")
+async def cancel_review_job(session: Session, job_id: str):
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+        
+    if job.wp_post_id or job.linkedin_post_id or job.newsletter_campaign_id or job.gbp_post_name:
+        job.status = JobStatus.published
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        await session.commit()
+        return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+    else:
+        raise HTTPException(400, "Job was not previously published, cannot cancel review.")
+
+
 # ── Retry failed jobs ─────────────────────────────────────────────────────────
 
 @router.post("/jobs/{job_id}/retry")
@@ -482,8 +511,52 @@ async def re_review_job(session: Session, job_id: str):
         raise HTTPException(404, "Job not found")
     job.status = JobStatus.pending_review
     job.updated_at = datetime.utcnow()
+    
+    if not job.generated_images:
+        try:
+            from src.pipeline.image_gen import generate_images_for_job
+            from src.models.settings import CompanySettings
+            settings_obj = await session.get(CompanySettings, 1)
+            images = await generate_images_for_job(job, db_settings=settings_obj)
+            job.generated_images = images
+            if images:
+                job.selected_image = images[0]
+        except Exception as e:
+            logger.error(f"Failed to generate images on re-review: {e}")
+            
     session.add(job)
     await session.commit()
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
+# ── Regenerate Images ──────────────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/regenerate_images")
+async def regenerate_job_images(
+    session: Session,
+    job_id: str,
+    feedback: Optional[str] = Form(None)
+):
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+        
+    from src.pipeline.image_gen import generate_images_for_job
+    from src.models.settings import CompanySettings
+    settings_obj = await session.get(CompanySettings, 1)
+    
+    try:
+        images = await generate_images_for_job(job, db_settings=settings_obj, feedback=feedback)
+        job.generated_images = images
+        if images:
+            job.selected_image = images[0]
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        await session.commit()
+    except Exception as e:
+        logger.error(f"Failed to regenerate images: {e}")
+        raise HTTPException(500, f"Failed to regenerate images: {str(e)}")
+        
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
@@ -639,6 +712,7 @@ async def save_job_content(
     reviewed_linkedin: str = Form(None),
     reviewed_newsletter_subject: str = Form(None),
     reviewed_newsletter_html: str = Form(None),
+    selected_image: str = Form(None),
 ):
     job = await session.get(ArticleJob, job_id)
     if not job:
@@ -661,6 +735,7 @@ async def save_job_content(
     if reviewed_linkedin: job.reviewed_linkedin = reviewed_linkedin
     if reviewed_newsletter_subject: job.reviewed_newsletter_subject = reviewed_newsletter_subject
     if reviewed_newsletter_html: job.reviewed_newsletter_html = reviewed_newsletter_html
+    if selected_image: job.selected_image = selected_image
 
     job.updated_at = datetime.utcnow()
     session.add(job)
@@ -1205,5 +1280,56 @@ async def get_active_plan_badge(request: Request, session: Session):
         """
         
     return HTMLResponse(badge_html)
+
+
+@router.post("/cluster-plans/{plan_id}/pause")
+async def pause_cluster_plan(request: Request, session: Session, plan_id: str):
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+        
+    plan.status = "paused"
+    session.add(plan)
+    
+    stmt = select(ArticleJob).where(
+        ArticleJob.cluster_plan_id == plan.id,
+        ArticleJob.status.in_([JobStatus.queued, JobStatus.pending])
+    )
+    jobs = (await session.exec(stmt)).all()
+    for job in jobs:
+        job.status = JobStatus.paused
+        job.queue_position = None
+        session.add(job)
+        
+    await session.commit()
+    await assign_queue_positions()
+    
+    referer = request.headers.get("referer") or f"/cluster-plans/{plan.id}"
+    return RedirectResponse(url=referer, status_code=303)
+
+
+@router.post("/cluster-plans/{plan_id}/resume")
+async def resume_cluster_plan(request: Request, session: Session, plan_id: str):
+    plan = await session.get(ClusterPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Cluster plan not found")
+        
+    plan.status = "approved"
+    session.add(plan)
+    
+    stmt = select(ArticleJob).where(
+        ArticleJob.cluster_plan_id == plan.id,
+        ArticleJob.status == JobStatus.paused
+    )
+    jobs = (await session.exec(stmt)).all()
+    for job in jobs:
+        job.status = JobStatus.queued
+        session.add(job)
+        
+    await session.commit()
+    await assign_queue_positions()
+    
+    referer = request.headers.get("referer") or f"/cluster-plans/{plan.id}"
+    return RedirectResponse(url=referer, status_code=303)
 
 
