@@ -36,3 +36,8 @@ class NewsletterSchema(BaseModel):
     body_html: str
     cta_text: str
     cta_url: str = ""
+
+
+class GBPostSchema(BaseModel):
+    summary: str
+

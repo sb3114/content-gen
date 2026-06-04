@@ -108,7 +108,7 @@ class WordPressClient:
                 for c in resp.json()
             ]
 
-    async def create_draft(
+    async def create_post(
         self,
         title: str,
         html_content: str,
@@ -120,7 +120,7 @@ class WordPressClient:
         author_name: str = "",
     ) -> dict:
         """
-        Create a post with status=draft on the self-hosted WP site.
+        Create and immediately publish a post on the self-hosted WP site.
 
         SEO fields (Yoast / RankMath) are written via the `meta` key.
         Article JSON-LD schema is prepended to the post body.
@@ -150,7 +150,7 @@ class WordPressClient:
         payload: dict = {
             "title": title,
             "content": full_content,
-            "status": "draft",
+            "status": "publish",
             "slug": slug,
             "tags": tag_ids,
             "meta": {
@@ -170,6 +170,77 @@ class WordPressClient:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"{self.base}/posts",
+                json=payload,
+                headers=self.headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "post_id": str(data["id"]),
+                "url": data.get("link", ""),
+                "edit_url": (
+                    f"{self.site_url}"
+                    f"/wp-admin/post.php?post={data['id']}&action=edit"
+                ),
+            }
+
+    async def update_post(
+        self,
+        post_id: str,
+        title: str,
+        html_content: str,
+        focus_keyword: str,
+        meta_description: str,
+        tags: list[str],
+        category_ids: list[int] | None = None,
+        author_id: int | None = None,
+        author_name: str = "",
+    ) -> dict:
+        """
+        Update an existing post in-place on the self-hosted WP site.
+        """
+        # Resolve tag names → IDs
+        tag_ids = await self._resolve_tags(tags)
+
+        # Build slug from focus keyword
+        slug = _keyword_to_slug(focus_keyword or title)
+
+        # Build Article JSON-LD schema block
+        today_iso = date.today().isoformat()
+        safe_title = title.replace('"', '\\"')
+        safe_desc = meta_description.replace('"', '\\"')
+        safe_author = author_name.replace('"', '\\"')
+        schema_json = (
+            f'{{"@context":"https://schema.org","@type":"Article",'  
+            f'"headline":"{safe_title}",'  
+            f'"author":{{"@type":"Person","name":"{safe_author}"}},'  
+            f'"datePublished":"{today_iso}","dateModified":"{today_iso}",'  
+            f'"description":"{safe_desc}"}}'
+        )
+        schema_block = f'<script type="application/ld+json">{schema_json}</script>\n'
+        full_content = schema_block + html_content
+
+        payload: dict = {
+            "title": title,
+            "content": full_content,
+            "status": "publish",
+            "slug": slug,
+            "tags": tag_ids,
+            "meta": {
+                "_yoast_wpseo_focuskw": focus_keyword,
+                "_yoast_wpseo_metadesc": meta_description,
+                "rank_math_focus_keyword": focus_keyword,
+                "rank_math_description": meta_description,
+            },
+        }
+        if category_ids:
+            payload["categories"] = category_ids
+        if author_id:
+            payload["author"] = author_id
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self.base}/posts/{post_id}",
                 json=payload,
                 headers=self.headers,
             )

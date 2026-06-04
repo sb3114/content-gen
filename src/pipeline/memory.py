@@ -120,3 +120,67 @@ You are an expert style librarian. Merge these newly discovered style rules into
             logger.info("Successfully updated persistent user style memory.")
     except Exception as e:
         logger.error(f"Failed to merge and save rules: {e}")
+
+
+BRAND_MEMORY_PATH = "data/agent_memory/brand_context_memory.json"
+
+def save_brand_context_memory(settings_obj) -> dict:
+    """Caches the brand context and tone of voice settings in the persistent memory file."""
+    import json
+    os.makedirs(os.path.dirname(BRAND_MEMORY_PATH), exist_ok=True)
+    data = {
+        "marketing_strategy": getattr(settings_obj, "marketing_strategy", "") or "",
+        "icp": getattr(settings_obj, "icp", "") or "",
+        "core_pillars": getattr(settings_obj, "core_pillars", "") or "",
+        "tone_of_voice": getattr(settings_obj, "tone_of_voice", "") or "",
+        "audiences": getattr(settings_obj, "audiences", "") or "",
+        "company_description": getattr(settings_obj, "company_description", "") or "",
+        "summarized_context": getattr(settings_obj, "summarized_context", "") or "",
+    }
+    try:
+        with open(BRAND_MEMORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        logger.info("Successfully updated cached brand context memory.")
+    except Exception as e:
+        logger.error(f"Failed to write brand context memory: {e}")
+    return data
+
+def load_brand_context_memory() -> dict:
+    """Loads the brand context and tone of voice from the persistent memory file. Fallbacks to DB if missing."""
+    import json
+    os.makedirs(os.path.dirname(BRAND_MEMORY_PATH), exist_ok=True)
+    if os.path.exists(BRAND_MEMORY_PATH):
+        try:
+            with open(BRAND_MEMORY_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to read brand context memory cache: {e}")
+            
+    # Fallback to database query if cache is empty or corrupted
+    try:
+        import asyncio
+        from src.database import AsyncSessionLocal
+        from src.models.settings import CompanySettings
+
+        async def _fetch():
+            async with AsyncSessionLocal() as session:
+                settings_obj = await session.get(CompanySettings, 1)
+                if settings_obj:
+                    return save_brand_context_memory(settings_obj)
+            return {}
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, _fetch())
+                return future.result()
+        else:
+            return asyncio.run(_fetch())
+    except Exception as e:
+        logger.warning(f"Could not load fallback brand context from DB: {e}")
+    return {}

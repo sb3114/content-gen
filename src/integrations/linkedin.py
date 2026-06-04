@@ -102,19 +102,16 @@ class LinkedInClient:
         }
 
     async def post_article(
-        self, post_text: str, article_url: str, author_urn: str
+        self, post_text: str, author_urn: str
     ) -> dict:
-        """Create a UGC post linking to the article."""
+        """Create a text-only UGC post (previously linked directly to the article)."""
         payload = {
             "author": author_urn,
             "lifecycleState": "PUBLISHED",
             "specificContent": {
                 "com.linkedin.ugc.ShareContent": {
                     "shareCommentary": {"text": post_text},
-                    "shareMediaCategory": "ARTICLE",
-                    "media": [
-                        {"status": "READY", "originalUrl": article_url}
-                    ],
+                    "shareMediaCategory": "NONE",
                 }
             },
             "visibility": {
@@ -131,6 +128,51 @@ class LinkedInClient:
             resp.raise_for_status()
             post_id = resp.headers.get("x-restli-id", "")
             return {"post_id": post_id}
+
+    async def create_comment(
+        self, post_urn: str, comment_text: str, author_urn: str
+    ) -> dict:
+        """Create a comment on a UGC post."""
+        if not post_urn.startswith("urn:li:"):
+            post_urn = f"urn:li:ugcPost:{post_urn}"
+
+        payload = {
+            "actor": author_urn,
+            "object": post_urn,
+            "message": {
+                "text": comment_text
+            }
+        }
+
+        encoded_urn = post_urn.replace(":", "%3A")
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{LI_API}/socialActions/{encoded_urn}/comments",
+                json=payload,
+                headers=self.headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+
+    async def delete_post(self, post_id: str) -> bool:
+        """
+        Delete an existing UGC post by its URN/ID.
+        LinkedIn's API does not support editing posts, so delete + re-create
+        is the correct approach when republishing updated content.
+        Returns True on success, False if the post was already gone (404).
+        """
+        # post_id may be a full URN or just the numeric part
+        encoded_id = post_id.replace(":", "%3A") if ":" in post_id else post_id
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.delete(
+                f"{LI_API}/ugcPosts/{encoded_id}",
+                headers=self.headers,
+            )
+            if resp.status_code == 404:
+                return False  # Already gone, that's fine
+            resp.raise_for_status()
+            return True
 
 
 def get_client(db_settings=None) -> LinkedInClient:

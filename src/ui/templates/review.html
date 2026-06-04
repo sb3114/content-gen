@@ -54,6 +54,67 @@
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.55; transform: scale(0.97); }
   }
+
+  /* Live HTML Preview Styles */
+  #article-preview {
+    font-family: var(--font);
+  }
+  #article-preview h2, #article-preview h3, #article-preview h4 {
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    color: var(--text);
+    font-weight: 700;
+  }
+  #article-preview h2 {
+    font-size: 1.4rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3rem;
+  }
+  #article-preview h3 {
+    font-size: 1.15rem;
+  }
+  #article-preview p {
+    margin-bottom: 1rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+  #article-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+    background: var(--bg-card);
+  }
+  #article-preview th, #article-preview td {
+    border: 1px solid var(--border);
+    padding: 0.65rem 0.85rem;
+    text-align: left;
+  }
+  #article-preview th {
+    background-color: var(--accent) !important;
+    color: #ffffff !important;
+    font-family: 'Inter', system-ui, sans-serif !important;
+    font-weight: 600;
+  }
+  #article-preview tr:nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.02);
+  }
+  #article-preview ul, #article-preview ol {
+    margin: 1rem 0 1.5rem 1.5rem;
+    padding-left: 0.5rem;
+  }
+  #article-preview li {
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  #article-preview a {
+    color: var(--accent-light);
+    text-decoration: underline;
+  }
+  #article-preview a:hover {
+    color: #ffffff;
+  }
 </style>
 
 <div class="page-header">
@@ -83,6 +144,13 @@
     </div>
   </div>
   <div style="display:flex; gap:0.5rem; align-items:center;">
+    {% if job.status.value == 'published' %}
+    <form action="/jobs/{{ job.id }}/re-review" method="post" style="margin: 0;">
+      <button type="submit" class="btn btn--primary" title="Unlock for edits and refinement">
+        🔄 Send Back to Review &amp; Refine
+      </button>
+    </form>
+    {% endif %}
     <button onclick="document.getElementById('edit-panel').classList.toggle('hidden')" class="btn btn--ghost"
       type="button" title="Edit job settings">⚙ Edit</button>
     <a href="/" class="btn btn--ghost">← Dashboard</a>
@@ -296,9 +364,13 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
     <div class="review-main" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
 
       <div class="review-col">
-        <div class="section-header">
-          <h2 class="section-title">📝 Article</h2>
-          <span class="word-count" id="wc">calculating…</span>
+        <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; width: 100%;">
+          <h2 class="section-title" style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">📝 Article</h2>
+          <div style="display: flex; gap: 0.25rem; align-items: center;">
+            <button type="button" id="tab-edit" class="btn btn--primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: 4px; box-shadow: none;" onclick="showTab('edit')">✏️ Edit HTML</button>
+            <button type="button" id="tab-preview" class="btn btn--ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: 4px;" onclick="showTab('preview')">👁️ Live Preview</button>
+          </div>
+          <span class="word-count" id="wc" style="margin-left: auto;">calculating…</span>
         </div>
 
         <div class="form-group">
@@ -310,13 +382,16 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
         </div>
 
         <div class="editor-refining-wrapper" id="article-refining-wrap">
-          <div class="form-group">
+          <div class="form-group" style="position: relative;">
             <textarea id="reviewed_markdown" name="reviewed_markdown" class="form-textarea form-textarea--tall"
               oninput="updateWordCount(this)" {% if not is_editable %}readonly
               style="background: var(--bg-body); cursor: default; border-color: transparent;" {% endif
               %}>{{ job.reviewed_markdown or job.article_markdown or '' }}</textarea>
+            
+            <div id="article-preview" style="display: none; padding: 1.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); min-height: 420px; max-height: 600px; overflow-y: auto; color: var(--text);"></div>
+            
             {% if is_editable %}
-            <p class="form-hint">Edit directly. Markdown formatting will be converted to HTML on publish.</p>
+            <p class="form-hint" id="editor-hint">Edit directly in HTML format. Click "Live Preview" to inspect table styles, lists, and CTAs.</p>
             {% endif %}
           </div>
         </div>
@@ -599,6 +674,32 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
 {% endif %}
 
 <script>
+  function showTab(tabName) {
+    const editBtn = document.getElementById('tab-edit');
+    const previewBtn = document.getElementById('tab-preview');
+    const textarea = document.getElementById('reviewed_markdown');
+    const previewDiv = document.getElementById('article-preview');
+
+    if (tabName === 'edit') {
+      editBtn.classList.add('btn--primary');
+      editBtn.classList.remove('btn--ghost');
+      previewBtn.classList.add('btn--ghost');
+      previewBtn.classList.remove('btn--primary');
+      textarea.style.display = 'block';
+      previewDiv.style.display = 'none';
+    } else {
+      previewBtn.classList.add('btn--primary');
+      previewBtn.classList.remove('btn--ghost');
+      editBtn.classList.add('btn--ghost');
+      editBtn.classList.remove('btn--primary');
+      textarea.style.display = 'none';
+      previewDiv.style.display = 'block';
+      
+      // Update preview content
+      previewDiv.innerHTML = textarea.value;
+    }
+  }
+
   function updateWordCount(el) {
     const words = el.value.trim().split(/\s+/).filter(Boolean).length;
     document.getElementById('wc').textContent = words + ' words';
@@ -609,8 +710,25 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
   // Init on load
   const art = document.getElementById('reviewed_markdown');
   const li = document.getElementById('linkedin-editor');
-  if (art) updateWordCount(art);
+  if (art) {
+    updateWordCount(art);
+    // Initialize preview container with initial content
+    const previewDiv = document.getElementById('article-preview');
+    if (previewDiv) {
+      previewDiv.innerHTML = art.value;
+    }
+  }
   if (li) updateCharCount(li);
+
+  // Sync preview dynamically when HTMX swaps updated content back (e.g. from chat refinement)
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    const textarea = document.getElementById('reviewed_markdown');
+    const previewDiv = document.getElementById('article-preview');
+    if (textarea && previewDiv) {
+      previewDiv.innerHTML = textarea.value;
+      updateWordCount(textarea);
+    }
+  });
 
   document.body.addEventListener('htmx:beforeRequest', function (evt) {
     if (evt.detail.elt.id === 'chat_input' || evt.detail.elt.hasAttribute('hx-include')) {
@@ -650,6 +768,14 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
       if (artWrap) artWrap.classList.remove('refining');
       if (newsWrap) newsWrap.classList.remove('refining');
       if (liWrap) liWrap.classList.remove('refining');
+
+      // Sync preview content if swapped
+      const textarea = document.getElementById('reviewed_markdown');
+      const previewDiv = document.getElementById('article-preview');
+      if (textarea && previewDiv) {
+        previewDiv.innerHTML = textarea.value;
+        updateWordCount(textarea);
+      }
 
       // scroll to bottom again after server responds
       const msgs = document.getElementById('chat-messages');

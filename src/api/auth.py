@@ -256,6 +256,54 @@ async def dfs_validate() -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+@router.get("/gsc/validate")
+async def gsc_validate() -> dict:
+    """
+    Live check: refresh Service Account JSON credentials for GSC.
+    """
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
+    from src.integrations.google import GoogleSearchConsoleClient
+    try:
+        async with AsyncSessionLocal() as session:
+            db_settings = await session.get(CompanySettings, 1)
+        
+        if not db_settings or not db_settings.gsc_service_account_json:
+            return {"ok": False, "error": "Google Search Console service account JSON is not configured."}
+        
+        client = GoogleSearchConsoleClient(db_settings.gsc_service_account_json)
+        return await client.validate_connection()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@router.get("/gbp/validate")
+async def gbp_validate() -> dict:
+    """
+    Live check: refresh GBP OAuth2 token and retrieve location details.
+    """
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
+    from src.integrations.google import GoogleBusinessProfileClient
+    try:
+        async with AsyncSessionLocal() as session:
+            db_settings = await session.get(CompanySettings, 1)
+            
+        if not db_settings or not db_settings.gbp_client_id or not db_settings.gbp_client_secret or not db_settings.gbp_access_token:
+            return {"ok": False, "error": "Google Business Profile OAuth Client ID, Secret, or Refresh/Access token is missing."}
+            
+        client = GoogleBusinessProfileClient(
+            client_id=db_settings.gbp_client_id,
+            client_secret=db_settings.gbp_client_secret,
+            refresh_token=db_settings.gbp_access_token,
+            account_id=db_settings.gbp_account_id,
+            location_id=db_settings.gbp_location_id
+        )
+        return await client.validate_connection()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 # ── Combined status page ──────────────────────────────────────────────────────
 
 @router.get("/validate", response_class=HTMLResponse)

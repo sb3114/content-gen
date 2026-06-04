@@ -23,8 +23,8 @@ def _get_cache(key: str) -> list | dict | tuple | None:
             cache = json.load(f)
         item = cache.get(key)
         if item:
-            # Check if younger than 24 hours (86400 seconds)
-            if time.time() - item.get("timestamp", 0) < 86400:
+            # Check if younger than 7 days (604800 seconds)
+            if time.time() - item.get("timestamp", 0) < 604800:
                 return item.get("data")
     except Exception as e:
         import logging

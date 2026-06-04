@@ -48,3 +48,19 @@ class CompanySettings(SQLModel, table=True):
     dataforseo_login: Optional[str] = Field(default=None)
     dataforseo_password: Optional[str] = Field(default=None)
 
+    # Google Search Console Indexing Credentials
+    gsc_service_account_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+
+    # Google Business Profile Credentials
+    gbp_access_token: Optional[str] = Field(default=None, sa_column=Column(Text))
+    gbp_account_id: Optional[str] = Field(default=None)
+    gbp_location_id: Optional[str] = Field(default=None)
+    gbp_client_id: Optional[str] = Field(default=None)
+    gbp_client_secret: Optional[str] = Field(default=None)
+
+    # Queue Processing Time Windows
+    queue_start_hour: Optional[int] = Field(default=None)
+    queue_end_hour: Optional[int] = Field(default=None)
+    queue_timezone: Optional[str] = Field(default="Europe/London")
+
+

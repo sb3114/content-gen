@@ -28,7 +28,7 @@ high-performing LinkedIn post.
 - Hook (line 1): bold statement, surprising insight, or provocative question
 - Body: 3-5 short paragraphs — insights, not a summary; add YOUR perspective
 - One idea per paragraph, blank lines between
-- CTA: end with a clear call to action
+- CTA: end with a clear call to action. The very last sentence of the post body (before hashtags) must be "Discover more in comments"
 - Hashtags: 3-5 relevant tags at end
 - Length: 1200-1500 characters total
 - Tone: conversational, first-person
@@ -56,4 +56,19 @@ async def run_linkedin_adaptation(
         response_schema=LinkedInPostSchema
     )
     
-    return LinkedInPostSchema(**json.loads(text)), usage
+    post_obj = LinkedInPostSchema(**json.loads(text))
+    
+    # Ensure "Discover more in comments" is in the full_text
+    lower_text = post_obj.full_text.lower()
+    if "discover more in comments" not in lower_text and "discover more in commen" not in lower_text:
+        # Find where hashtags start (usually they start with #)
+        hashtag_idx = post_obj.full_text.find("#")
+        if hashtag_idx != -1:
+            before = post_obj.full_text[:hashtag_idx].rstrip()
+            after = post_obj.full_text[hashtag_idx:]
+            post_obj.full_text = f"{before}\n\nDiscover more in comments\n\n{after}"
+        else:
+            post_obj.full_text = f"{post_obj.full_text.rstrip()}\n\nDiscover more in comments"
+            
+    return post_obj, usage
+

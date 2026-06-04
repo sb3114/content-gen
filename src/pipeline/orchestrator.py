@@ -86,9 +86,10 @@ async def run_pipeline(job_id: str) -> None:
             input_tokens = job.input_tokens_used or 0
             output_tokens = job.output_tokens_used or 0
 
-            # Fetch company context
-            settings_obj = await session.get(CompanySettings, 1)
-            company_context = settings_obj.summarized_context if settings_obj else ""
+            # Fetch company context from persistent brand memory cache
+            from src.pipeline.memory import load_brand_context_memory
+            brand_ctx = load_brand_context_memory()
+            company_context = brand_ctx.get("summarized_context") or ""
 
             # Fetch Published Memory (Cross-linking context)
             from src.pipeline.summarize import get_published_memory
@@ -565,7 +566,10 @@ async def resume_pipeline(job_id: str) -> None:
 # ── Publish ───────────────────────────────────────────────────────────────────
 
 async def publish_job(job_id: str) -> None:
-    """Publish approved job to WordPress (draft) + LinkedIn + Brevo."""
+    """Publish approved job to WordPress (live) + LinkedIn + Brevo.
+    On republish: WordPress post is updated in-place; the existing LinkedIn
+    post is deleted and re-created (LinkedIn API does not support edits).
+    """
     logger.info(f"Starting publication phase for Job ID {job_id}...")
     from src.integrations.wordpress import get_client as wp_client
     from src.integrations.linkedin import get_client as li_client
@@ -589,74 +593,164 @@ async def publish_job(job_id: str) -> None:
         publish_wordpress = job.publish_wordpress
         publish_linkedin = job.publish_linkedin
         publish_newsletter = job.publish_newsletter
+        wp_post_id = job.wp_post_id
+        linkedin_post_id = job.linkedin_post_id  # existing post to replace on republish
 
         # Author info from settings
         author_id = settings_obj.wp_author_id if settings_obj else None
         author_name = (settings_obj.wp_author_name or "") if settings_obj else ""
 
+        # Newsletter details
+        newsletter_list_ids = job.newsletter_list_ids
+        newsletter_subject = job.reviewed_newsletter_subject or job.newsletter_subject
+        newsletter_preheader = job.reviewed_newsletter_preheader or job.newsletter_preheader
+        newsletter_html = job.reviewed_newsletter_html or job.newsletter_html
+
     await _save(job_id, status=JobStatus.publishing)
 
     try:
-        # Convert Markdown → HTML for WordPress
-        html_body = md.markdown(
-            body_md,
-            extensions=["tables", "fenced_code", "nl2br"],
-        )
+        # Check if the content is already HTML to bypass markdown parser
+        body_stripped = body_md.strip()
+        if body_stripped.startswith("<") or "</h2>" in body_stripped or "</p>" in body_stripped or "</td>" in body_stripped:
+            html_body = body_md
+        else:
+            html_body = md.markdown(
+                body_md,
+                extensions=["tables", "fenced_code", "nl2br"],
+            )
 
         wp_result = {"url": ""}
-        # 1. Post to WordPress.com as draft
+        # 1. Post to WordPress.com as draft or update existing post in-place
         if publish_wordpress:
-            logger.info(f"Job {job_id}: Posting draft to WordPress.com...")
             wp = wp_client(db_settings=settings_obj)
-            wp_result = await wp.create_draft(
-                title=title,
-                html_content=html_body,
-                focus_keyword=focus_kw,
-                meta_description=meta_desc,
-                tags=tags,
-                author_id=author_id,
-                author_name=author_name,
-            )
-            await _save(
-                job_id,
-                wp_post_id=wp_result["post_id"],
-                wp_post_url=wp_result["url"],
-            )
-            logger.info(f"Job {job_id}: WordPress draft created successfully at: {wp_result['url']}")
+            
+            # Retrieve WordPress categories and automatically assign the most accurate one
+            category_ids = []
+            try:
+                categories = await wp.get_categories()
+                if categories:
+                    category_options = "\n".join([f"- {c['id']}: {c['name']} (slug: {c['slug']})" for c in categories])
+                    cat_prompt = f"""\
+You are an expert content taxonomy editor. Given the article details, choose the single most relevant/accurate category from the list of existing WordPress categories to assign to this post.
 
-        # 2. Post to LinkedIn
+## Article Details
+- Topic: {title}
+- Focus Keyword: {focus_kw}
+
+## Available WordPress Categories
+{category_options}
+
+## Task
+Select the ID of the single best matching category. 
+If none of them match well, select the default category ID (usually 1 or Uncategorized).
+Return ONLY the chosen numeric category ID as an integer. Do not write any other text or explanation.
+"""
+                    from src.pipeline.llm import call_llm
+                    chosen_id_str, _ = await call_llm(prompt=cat_prompt, tier="haiku")
+                    import re
+                    match = re.search(r'\d+', chosen_id_str)
+                    if match:
+                        chosen_id = int(match.group(0))
+                        if any(c["id"] == chosen_id for c in categories):
+                            category_ids = [chosen_id]
+                            logger.info(f"Job {job_id}: Automatically matched WordPress category ID: {chosen_id}")
+            except Exception as e:
+                logger.error(f"Job {job_id}: Failed to dynamically select WordPress category: {e}")
+
+            if wp_post_id:
+                logger.info(f"Job {job_id}: WordPress post already exists (ID: {wp_post_id}). Updating in-place...")
+                wp_result = await wp.update_post(
+                    post_id=wp_post_id,
+                    title=title,
+                    html_content=html_body,
+                    focus_keyword=focus_kw,
+                    meta_description=meta_desc,
+                    tags=tags,
+                    category_ids=category_ids,
+                    author_id=author_id,
+                    author_name=author_name,
+                )
+                logger.info(f"Job {job_id}: WordPress post {wp_post_id} updated successfully at: {wp_result['url']}")
+            else:
+                logger.info(f"Job {job_id}: Publishing article to WordPress.com...")
+                wp_result = await wp.create_post(
+                    title=title,
+                    html_content=html_body,
+                    focus_keyword=focus_kw,
+                    meta_description=meta_desc,
+                    tags=tags,
+                    category_ids=category_ids,
+                    author_id=author_id,
+                    author_name=author_name,
+                )
+                await _save(
+                    job_id,
+                    wp_post_id=wp_result["post_id"],
+                    wp_post_url=wp_result["url"],
+                )
+                logger.info(f"Job {job_id}: WordPress post published successfully at: {wp_result['url']}")
+
+        # 2. Post to LinkedIn (delete old post first if republishing)
         if publish_linkedin:
-            logger.info(f"Job {job_id}: Posting content to LinkedIn...")
             li = li_client(db_settings=settings_obj)
             author_urn = (settings_obj.li_person_urn if settings_obj else None)
+
+            # If a previous LinkedIn post exists (republish), delete it first.
+            # LinkedIn's API does not support editing existing posts.
+            if linkedin_post_id:
+                logger.info(f"Job {job_id}: Deleting previous LinkedIn post (ID: {linkedin_post_id}) before re-posting...")
+                try:
+                    deleted = await li.delete_post(linkedin_post_id)
+                    if deleted:
+                        logger.info(f"Job {job_id}: Previous LinkedIn post deleted successfully.")
+                    else:
+                        logger.warning(f"Job {job_id}: Previous LinkedIn post {linkedin_post_id} not found (already deleted?). Continuing.")
+                except Exception as li_del_err:
+                    logger.warning(f"Job {job_id}: Could not delete previous LinkedIn post: {li_del_err}. Continuing with new post.")
+
+            logger.info(f"Job {job_id}: Posting content to LinkedIn...")
             li_result = await li.post_article(
                 post_text=li_text,
-                article_url=wp_result.get("url", ""),
                 author_urn=author_urn,
             )
+            post_urn = li_result.get("post_id", "")
             await _save(
                 job_id,
-                linkedin_post_id=li_result.get("post_id", ""),
+                linkedin_post_id=post_urn,
             )
-            logger.info(f"Job {job_id}: LinkedIn post shared successfully. Post ID: {li_result.get('post_id')}")
+            logger.info(f"Job {job_id}: LinkedIn post shared successfully. Post ID: {post_urn}")
+
+            # Post the article link in the comment section of the newly created post
+            article_url = wp_result.get("url", "")
+            if article_url:
+                logger.info(f"Job {job_id}: Posting article URL to LinkedIn comments: {article_url}...")
+                try:
+                    await li.create_comment(
+                        post_urn=post_urn,
+                        comment_text=article_url,
+                        author_urn=author_urn,
+                    )
+                    logger.info(f"Job {job_id}: LinkedIn comment posted successfully.")
+                except Exception as comment_err:
+                    logger.error(f"Job {job_id}: Failed to post link comment to LinkedIn: {comment_err}")
 
         # 3. Post to Brevo Newsletter
         if publish_newsletter:
             logger.info(f"Job {job_id}: Creating Brevo email newsletter campaign...")
             brevo = brevo_client(db_settings=settings_obj)
-            list_ids = job.newsletter_list_ids
+            list_ids = newsletter_list_ids
             if not list_ids and settings_obj.brevo_list_id:
                 list_ids = [settings_obj.brevo_list_id]
 
             if not list_ids:
                 raise ValueError("No Brevo List IDs configured.")
 
-            subject = job.reviewed_newsletter_subject or job.newsletter_subject
-            preheader = job.reviewed_newsletter_preheader or job.newsletter_preheader
-            html = job.reviewed_newsletter_html or job.newsletter_html
+            subject = newsletter_subject
+            preheader = newsletter_preheader
+            html = newsletter_html
 
             nl_result = await brevo.create_and_send_campaign(
-                name=f"Newsletter - {job.topic[:20]} - {datetime.utcnow().strftime('%Y%m%d%H%M')}",
+                name=f"Newsletter - {job_id[:8]} - {datetime.utcnow().strftime('%Y%m%d%H%M')}",
                 subject=subject,
                 preheader=preheader,
                 html_content=html,
@@ -667,6 +761,57 @@ async def publish_job(job_id: str) -> None:
                 newsletter_campaign_id=nl_result.get("campaign_id"),
             )
             logger.info(f"Job {job_id}: Brevo campaign created and scheduled. Campaign ID: {nl_result.get('campaign_id')}")
+
+        # 4. Request Indexing on Google Search Console
+        if wp_result.get("url") and settings_obj and settings_obj.gsc_service_account_json:
+            logger.info(f"Job {job_id}: Submitting published article URL to Google Search Console Indexing API...")
+            try:
+                from src.integrations.google import GoogleSearchConsoleClient
+                gsc = GoogleSearchConsoleClient(settings_obj.gsc_service_account_json)
+                gsc_res = await gsc.submit_indexing(wp_result["url"])
+                if gsc_res.get("ok"):
+                    logger.info(f"Job {job_id}: GSC Indexing request successfully sent for {wp_result['url']}.")
+                else:
+                    logger.warning(f"Job {job_id}: GSC Indexing request failed: {gsc_res.get('error')}")
+            except Exception as gsc_err:
+                logger.warning(f"Job {job_id}: Failed to submit URL to Google Search Console: {gsc_err}")
+
+        # 5. Post Update to Google Business Profile
+        if wp_result.get("url") and settings_obj and settings_obj.gbp_access_token and settings_obj.gbp_location_id:
+            logger.info(f"Job {job_id}: Generating Google Business Profile post adaptation...")
+            try:
+                from src.pipeline.gbp_adapt import run_gbp_adaptation
+                from src.integrations.google import GoogleBusinessProfileClient
+                
+                target_audience = plan_data.get("target_audience", "General")
+                gbp_post, gbp_usage = await run_gbp_adaptation(
+                    title=title,
+                    target_audience=target_audience,
+                    article_markdown=body_md
+                )
+                
+                logger.info(f"Job {job_id}: Posting adapted update to Google Business Profile locations...")
+                gbp_client = GoogleBusinessProfileClient(
+                    client_id=settings_obj.gbp_client_id,
+                    client_secret=settings_obj.gbp_client_secret,
+                    refresh_token=settings_obj.gbp_access_token,
+                    account_id=settings_obj.gbp_account_id,
+                    location_id=settings_obj.gbp_location_id
+                )
+                
+                gbp_res = await gbp_client.create_local_post(
+                    summary=gbp_post.summary,
+                    learn_more_url=wp_result["url"]
+                )
+                
+                if gbp_res.get("ok"):
+                    post_name = gbp_res.get("post_name")
+                    await _save(job_id, gbp_post_name=post_name)
+                    logger.info(f"Job {job_id}: Google Business Profile post created successfully: {post_name}.")
+                else:
+                    logger.warning(f"Job {job_id}: Google Business Profile post failed: {gbp_res.get('error')}")
+            except Exception as gbp_err:
+                logger.warning(f"Job {job_id}: Failed to publish Google Business Profile update: {gbp_err}")
 
         await _save(
             job_id,

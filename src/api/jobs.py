@@ -64,6 +64,15 @@ async def save_settings(
     brevo_sender_name: str = Form(None),
     dataforseo_login: str = Form(None),
     dataforseo_password: str = Form(None),
+    gsc_service_account_json: str = Form(None),
+    gbp_access_token: str = Form(None),
+    gbp_account_id: str = Form(None),
+    gbp_location_id: str = Form(None),
+    gbp_client_id: str = Form(None),
+    gbp_client_secret: str = Form(None),
+    queue_start_hour: Optional[int] = Form(None),
+    queue_end_hour: Optional[int] = Form(None),
+    queue_timezone: str = Form("Europe/London"),
 ):
     settings_obj = await session.get(CompanySettings, 1)
     if not settings_obj:
@@ -110,6 +119,17 @@ async def save_settings(
     
     if dataforseo_login is not None: settings_obj.dataforseo_login = dataforseo_login
     if dataforseo_password is not None: settings_obj.dataforseo_password = dataforseo_password
+
+    if gsc_service_account_json is not None: settings_obj.gsc_service_account_json = gsc_service_account_json
+    if gbp_access_token is not None: settings_obj.gbp_access_token = gbp_access_token
+    if gbp_account_id is not None: settings_obj.gbp_account_id = gbp_account_id
+    if gbp_location_id is not None: settings_obj.gbp_location_id = gbp_location_id
+    if gbp_client_id is not None: settings_obj.gbp_client_id = gbp_client_id
+    if gbp_client_secret is not None: settings_obj.gbp_client_secret = gbp_client_secret
+
+    settings_obj.queue_start_hour = queue_start_hour
+    settings_obj.queue_end_hour = queue_end_hour
+    if queue_timezone: settings_obj.queue_timezone = queue_timezone
     
     if brand_changed or not settings_obj.summarized_context:
         from src.pipeline.summarize import summarize_company_context
@@ -119,6 +139,10 @@ async def save_settings(
     
     session.add(settings_obj)
     await session.commit()
+
+    # Update persistent brand context memory cache file
+    from src.pipeline.memory import save_brand_context_memory
+    save_brand_context_memory(settings_obj)
     
     # Redirect back to settings with success (could add flash message)
     return RedirectResponse(url="/settings", status_code=303)
@@ -134,12 +158,7 @@ async def dashboard(request: Request, session: Session):
     if not settings_obj:
         settings_obj = CompanySettings(id=1)
     
-    # Retrieve both independent and plan-scheduled jobs
-    jobs = (await session.exec(
-        select(ArticleJob)
-        .order_by(ArticleJob.created_at.desc())
-        .limit(50)
-    )).all()
+    # Standalone jobs are fetched directly at DB level to avoid limit issues
     
     plans = (await session.exec(
         select(ClusterPlan).order_by(ClusterPlan.created_at.desc()).limit(20)
@@ -154,11 +173,19 @@ async def dashboard(request: Request, session: Session):
             .order_by(ArticleJob.scheduled_at.asc())
         )).all()
         plan_jobs_map[plan.id] = plan_jobs
-        
+
+    # Only show truly standalone jobs (no cluster association) in the main card grid
+    standalone_jobs = (await session.exec(
+        select(ArticleJob)
+        .where(ArticleJob.cluster_plan_id == None)  # noqa: E711
+        .order_by(ArticleJob.created_at.desc())
+        .limit(50)
+    )).all()
+
     return templates.TemplateResponse(
         "index.html", {
-            "request": request, 
-            "jobs": jobs, 
+            "request": request,
+            "jobs": standalone_jobs,
             "plans": plans,
             "plan_jobs_map": plan_jobs_map,
             "settings": settings_obj
@@ -440,6 +467,20 @@ async def retry_job(
     job.status = JobStatus.queued
     job.error_message = None
     job.error_step = None
+    job.updated_at = datetime.utcnow()
+    session.add(job)
+    await session.commit()
+    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+
+
+# ── Send back to review ───────────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/re-review")
+async def re_review_job(session: Session, job_id: str):
+    job = await session.get(ArticleJob, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    job.status = JobStatus.pending_review
     job.updated_at = datetime.utcnow()
     session.add(job)
     await session.commit()
@@ -782,6 +823,13 @@ async def get_cluster_plan(request: Request, session: Session, plan_id: str):
         except Exception:
             pass
 
+    # Fetch all child jobs associated with this plan
+    child_jobs = (await session.exec(
+        select(ArticleJob)
+        .where(ArticleJob.cluster_plan_id == plan_id)
+        .order_by(ArticleJob.scheduled_at.asc())
+    )).all()
+
     return templates.TemplateResponse(
         "cluster_plan.html",
         {
@@ -789,6 +837,7 @@ async def get_cluster_plan(request: Request, session: Session, plan_id: str):
             "plan": plan,
             "start_date": start_date,
             "end_date": end_date,
+            "child_jobs": child_jobs,
         }
     )
 
@@ -1156,4 +1205,5 @@ async def get_active_plan_badge(request: Request, session: Session):
         """
         
     return HTMLResponse(badge_html)
+
 

@@ -77,6 +77,20 @@ async def init_db():
         await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS rate_limit_banner VARCHAR;"))
         await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS rate_limit_until TIMESTAMP;"))
 
+        # Google Search Console Indexing and Google Business Profile fields
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gsc_service_account_json TEXT;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gbp_access_token TEXT;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gbp_account_id VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gbp_location_id VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gbp_client_id VARCHAR;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS gbp_client_secret VARCHAR;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS gbp_post_name VARCHAR;"))
+
+        # Queue Time Window fields
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS queue_start_hour INTEGER;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS queue_end_hour INTEGER;"))
+        await conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS queue_timezone VARCHAR NOT NULL DEFAULT 'Europe/London';"))
+
     try:
         # Alter ENUM types outside transaction blocks (PostgreSQL requires this)
         async with engine.connect() as conn:

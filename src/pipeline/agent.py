@@ -444,30 +444,160 @@ def tool_approve_and_schedule_latest_plan(publish_targets: List[str] = ["wordpre
     return json.dumps(result)
 
 
+class SettingsMock:
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+class ClaudePart:
+    def __init__(self, name, args):
+        self.function_call = self
+        self.name = name
+        self.args = args
+
+class ClaudeCandidate:
+    def __init__(self, parts):
+        self.content = self
+        self.parts = parts
+
+class ClaudeResponse:
+    def __init__(self, text="", function_calls=None):
+        self.text = text
+        self.candidates = [ClaudeCandidate([ClaudePart(name, args) for name, args in function_calls])] if function_calls else []
+
+class ClaudeChat:
+    def __init__(self, history: List[dict], sys_instr: str, db_settings=None):
+        self.history = list(history)
+        self.sys_instr = sys_instr
+        self.db_settings = db_settings
+
+    def send_message(self, message):
+        import json
+        import asyncio
+        from src.pipeline.llm import call_llm
+
+        if isinstance(message, list):
+            for part in message:
+                if hasattr(part, "function_response") and part.function_response:
+                    resp_dict = part.function_response.response
+                    tool_name = part.function_response.name
+                    self.history.append({
+                        "role": "user",
+                        "content": f"Tool '{tool_name}' executed. Result: {json.dumps(resp_dict)}"
+                    })
+        else:
+            self.history.append({"role": "user", "content": str(message)})
+
+        # Format history for Claude
+        history_text = ""
+        for item in self.history:
+            role = "User" if item["role"] == "user" else "Assistant"
+            history_text += f"\n### {role}:\n{item['content']}\n"
+
+        prompt = f"""\
+You are the Content Engine Agent. You have access to the following tools:
+1. tool_create_jobs: Creates article writing jobs from a list of topics.
+   Args: topics (array of strings), scheduled_dates (array of strings), publish_targets (array of strings, optional), newsletter_type (string, optional), newsletter_timeframe (string, optional), newsletter_list_ids (array of ints, optional).
+2. tool_list_jobs: Lists active jobs in the pipeline.
+   Args: status_filter (string).
+3. tool_edit_job: Edits an existing job's scheduling or publication targets.
+   Args: job_id (string), new_scheduled_at (string, optional), new_publish_targets (array of strings, optional), new_newsletter_list_ids (array of ints, optional).
+4. tool_delete_job: Deletes a job from the content pipeline.
+   Args: job_id (string).
+5. tool_generate_90_day_plan: Generates a Hub & Spoke rolling strategy.
+   Args: seed_topic (string), num_pillars (int, optional), spokes_per_pillar (int, optional).
+6. tool_approve_and_schedule_latest_plan: Approves the latest plan and schedules all generated child jobs.
+   Args: publish_targets (array of strings, optional).
+
+## Conversation History & Latest Messages
+{history_text}
+
+## Task
+Decide to either call a tool or reply to the user.
+You MUST reply with a JSON object. 
+- If you call a tool:
+{{
+  "tool_call": {{
+    "name": "tool_name",
+    "arguments": {{ ... }}
+  }}
+}}
+- If you reply directly to the user:
+{{
+  "reply": "Your direct reply message here."
+}}
+"""
+
+        async def _async_call():
+            text, _ = await call_llm(
+                prompt=prompt,
+                tier="sonnet",
+                system_instruction=self.sys_instr,
+                use_json=True,
+                db_settings=self.db_settings
+            )
+            return text
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, _async_call())
+                raw_text = future.result()
+        else:
+            raw_text = asyncio.run(_async_call())
+
+        try:
+            parsed = json.loads(raw_text)
+        except Exception:
+            parsed = {"reply": raw_text}
+
+        if "tool_call" in parsed and parsed["tool_call"]:
+            tool_name = parsed["tool_call"].get("name", "")
+            tool_args = parsed["tool_call"].get("arguments", {})
+            self.history.append({
+                "role": "model",
+                "content": f"Requesting tool execution for '{tool_name}' with args {json.dumps(tool_args)}"
+            })
+            return ClaudeResponse(function_calls=[(tool_name, tool_args)])
+        else:
+            reply_text = parsed.get("reply", raw_text)
+            self.history.append({
+                "role": "model",
+                "content": reply_text
+            })
+            return ClaudeResponse(text=reply_text)
+
+
 def get_agent_chat(history: List[dict] = []):
-    """Initializes the Gemini agent with tools."""
+    """Initializes the agent chat (routing to Claude CLI if setup token is present, else Gemini)."""
+    from src.pipeline.memory import load_brand_context_memory
+    from src.database import AsyncSessionLocal
     from src.models.settings import CompanySettings
 
-    # Fetch brand settings context
-    async def _fetch_brand_context():
+    brand_ctx = load_brand_context_memory()
+
+    async def _get_claude_token():
         local_engine, LocalSession = _make_agent_session()
         try:
             async with LocalSession() as session:
                 settings_obj = await session.get(CompanySettings, 1)
                 if settings_obj:
-                    return {
-                        "company_description": settings_obj.company_description or "",
-                        "marketing_strategy": settings_obj.marketing_strategy or "",
-                        "tone_of_voice": settings_obj.tone_of_voice or "",
-                        "icp": settings_obj.icp or "",
-                        "core_pillars": settings_obj.core_pillars or "",
-                        "audiences": settings_obj.audiences or "",
+                    return settings_obj.claude_setup_token, {
+                        "llm_provider": settings_obj.llm_provider,
+                        "claude_setup_token": settings_obj.claude_setup_token,
+                        "allow_fallback_to_haiku": settings_obj.allow_fallback_to_haiku,
                     }
         except Exception as e:
-            logger.warning(f"Could not load brand voice/strategy context for agent: {e}")
+            logger.warning(f"Could not load settings in get_agent_chat: {e}")
         finally:
             await local_engine.dispose()
-        return {}
+        return None, None
 
     try:
         loop = asyncio.get_running_loop()
@@ -475,13 +605,12 @@ def get_agent_chat(history: List[dict] = []):
         loop = None
 
     if loop and loop.is_running():
-        # Running event loop exists, run task in a separate thread to avoid loop conflicts
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, _fetch_brand_context())
-            brand_ctx = future.result()
+            future = executor.submit(asyncio.run, _get_claude_token())
+            claude_token, db_settings_dict = future.result()
     else:
-        brand_ctx = asyncio.run(_fetch_brand_context())
+        claude_token, db_settings_dict = asyncio.run(_get_claude_token())
 
     sys_instr = (
         "You are the Content Engine Agent. You manage jobs in the content pipeline. "
@@ -508,7 +637,12 @@ def get_agent_chat(history: List[dict] = []):
         "Core Pillars and target audiences."
     )
 
-    # Convert history dicts to types.Content
+    if claude_token:
+        # Route to Claude CLI agent chat
+        db_settings = SettingsMock(**db_settings_dict) if db_settings_dict else None
+        return ClaudeChat(history, sys_instr, db_settings=db_settings)
+
+    # Fallback to standard Gemini client chat
     contents = []
     for h in history:
         contents.append(types.Content(role=h["role"], parts=[types.Part.from_text(text=h["content"])]))

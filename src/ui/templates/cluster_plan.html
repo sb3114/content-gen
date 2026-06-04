@@ -82,6 +82,22 @@
     font-size: 0.75rem;
     color: var(--text-muted);
   }
+
+  .child-job-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem 1.1rem;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .child-job-row:hover {
+    border-color: rgba(124, 58, 237, 0.4);
+    background: var(--surface-2);
+  }
 </style>
 {% endblock %}
 
@@ -116,7 +132,9 @@
     <div class="meta-item">
       <span class="meta-label">Total Articles</span>
       <span class="meta-value">
-        {% if plan.tasks %}{{ plan.tasks | length }} articles{% else %}Awaiting generation...{% endif %}
+        {% if child_jobs %}{{ child_jobs | length }} jobs
+        {% elif plan.tasks %}{{ plan.tasks | length }} planned
+        {% else %}Awaiting generation...{% endif %}
       </span>
     </div>
     <div class="meta-item">
@@ -142,7 +160,7 @@
 {% if plan.status in ['cluster_review', 'approved'] %}
 <div class="cluster-preview-section">
   <h2 style="font-size: 1.3rem; margin-bottom: 0.5rem; color: var(--text);">
-    {% if plan.status == 'approved' %}✓ Approved Content Matrix{% else %}📅 Preview & Edit Planned Clusters{% endif %}
+    {% if plan.status == 'approved' %}✓ Approved Content Matrix{% else %}📅 Preview &amp; Edit Planned Clusters{% endif %}
   </h2>
   <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">
     The strategy agent has clustered topics into messaging pillars. Expand each cluster to review article titles,
@@ -207,7 +225,7 @@
               <div style="display: flex; flex-direction: column; gap: 0.2rem;">
                 <label
                   style="font-size: 0.7rem; color: var(--text-dim); text-align: right; text-transform: uppercase;">Publish
-                  Date & Time</label>
+                  Date &amp; Time</label>
                 <input type="datetime-local" class="form-input" value="{{ task.scheduled_at[:16] }}" {% if
                   plan.status=='approved' %}disabled{% endif %}
                   style="padding: 0.35rem 0.65rem; font-size: 0.8rem; width: 200px; background: var(--bg-input);"
@@ -248,21 +266,89 @@
     <a href="/" class="btn btn--ghost" style="padding: 0.7rem 1.5rem;">Cancel Plan</a>
     <button type="submit" class="btn btn--primary btn--large"
       style="background: linear-gradient(135deg, var(--success) 0%, #34d399 100%); border: none; box-shadow: 0 0 20px rgba(16, 185, 129, 0.25); padding: 0.7rem 2rem;">
-      🚀 Approve & Bulk Schedule 90-Day Plan
+      🚀 Approve &amp; Bulk Schedule 90-Day Plan
     </button>
   </form>
   {% else %}
   <div
-    style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius); padding: 1.5rem; margin-top: 2.5rem; display: flex; align-items: center; gap: 0.75rem;">
+    style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-top: 2.5rem; display: flex; align-items: center; gap: 0.75rem;">
     <span style="font-size: 1.5rem;">🚀</span>
     <div>
       <strong style="color: var(--success);">This cluster plan is approved and active!</strong>
-      <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">All articles are successfully enqueued
-        in the calendar scheduler and will write autonomously.</p>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+        {{ child_jobs | length }} article jobs are scheduled in the pipeline.
+      </p>
     </div>
   </div>
   {% endif %}
 
+</div>
+{% endif %}
+
+<!-- ── Child Jobs Section ──────────────────────────────────────────────────── -->
+{% if child_jobs %}
+<div class="cluster-preview-section" style="margin-top: 2.5rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+    <h2 style="font-size: 1.2rem; color: var(--text); margin: 0;">
+      📋 Child Article Jobs
+      <span style="font-size: 0.85rem; font-weight: 400; color: var(--text-muted); margin-left: 0.5rem;">({{ child_jobs | length }} total)</span>
+    </h2>
+    <!-- Status summary pills -->
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      {% set ns = namespace(queued=0, running=0, review=0, published=0, failed=0) %}
+      {% for j in child_jobs %}
+        {% if j.status.value == 'queued' %}{% set ns.queued = ns.queued + 1 %}
+        {% elif j.status.value in ['running', 'resuming'] %}{% set ns.running = ns.running + 1 %}
+        {% elif j.status.value == 'pending_review' %}{% set ns.review = ns.review + 1 %}
+        {% elif j.status.value == 'published' %}{% set ns.published = ns.published + 1 %}
+        {% elif j.status.value == 'failed' %}{% set ns.failed = ns.failed + 1 %}
+        {% endif %}
+      {% endfor %}
+      {% if ns.queued %}<span class="badge badge--queued">{{ ns.queued }} queued</span>{% endif %}
+      {% if ns.running %}<span class="badge badge--running">{{ ns.running }} running</span>{% endif %}
+      {% if ns.review %}<span class="badge badge--pending_review">{{ ns.review }} to review</span>{% endif %}
+      {% if ns.published %}<span class="badge badge--published">{{ ns.published }} published</span>{% endif %}
+      {% if ns.failed %}<span class="badge badge--failed">{{ ns.failed }} failed</span>{% endif %}
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+    {% for job in child_jobs %}
+    <div class="child-job-row" onclick="window.location='/jobs/{{ job.id }}'">
+
+      <!-- Left: status badge + title + pillar -->
+      <div style="display: flex; align-items: center; gap: 0.85rem; min-width: 0; flex: 1;">
+        <span class="badge badge--{{ job.status.value }}" style="white-space: nowrap; flex-shrink: 0;">
+          {{ job.status.value.replace('_', ' ') }}
+        </span>
+        <div style="min-width: 0;">
+          <div style="font-size: 0.9rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px;"
+               title="{{ job.topic }}">
+            {{ job.reviewed_title or (job.content_plan.chosen_title if job.content_plan else job.topic) }}
+          </div>
+          {% if job.core_messaging_pillar %}
+          <div style="font-size: 0.72rem; color: var(--accent-light); margin-top: 0.15rem;">🎯 {{ job.core_messaging_pillar }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Right: publish date + wp link + chevron -->
+      <div style="display: flex; align-items: center; gap: 1rem; flex-shrink: 0; margin-left: 1rem;">
+        {% if job.wp_post_url %}
+        <a href="{{ job.wp_post_url }}" target="_blank" rel="noopener"
+           onclick="event.stopPropagation()"
+           style="font-size: 0.75rem; color: #34d399; text-decoration: none; display: flex; align-items: center; gap: 0.3rem; border: 1px solid rgba(16,185,129,0.3); padding: 0.2rem 0.55rem; border-radius: 4px; background: rgba(16,185,129,0.07); white-space: nowrap;">
+          🌐 View Post
+        </a>
+        {% endif %}
+        <span style="font-size: 0.78rem; color: var(--text-dim); white-space: nowrap;">
+          📅 {{ job.scheduled_at.strftime('%b %d, %Y') if job.scheduled_at else 'Unscheduled' }}
+        </span>
+        <span style="font-size: 1rem; color: var(--text-dim);">›</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 

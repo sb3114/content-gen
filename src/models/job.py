@@ -100,6 +100,7 @@ class ArticleJob(SQLModel, table=True):
     wp_post_url: Optional[str] = Field(default=None)
     wp_post_id: Optional[str] = Field(default=None)
     linkedin_post_id: Optional[str] = Field(default=None)
+    gbp_post_name: Optional[str] = Field(default=None)
     newsletter_campaign_id: Optional[str] = Field(default=None)
 
     # ── Error tracking ───────────────────────────────────────────────────

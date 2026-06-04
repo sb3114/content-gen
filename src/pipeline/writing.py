@@ -38,7 +38,7 @@ You are an elite healthtech, elderly care, and healthcare copywriter. Write a hi
    - Base all medical, technological, and caregiving knowledge strictly on well-known healthcare, elderly care, dementia, and Alzheimer's institutions (e.g., Mayo Clinic, Alzheimer's Association, National Institute on Aging, WHO, NHS, ageuk.org.uk, brightmind.ai, alzheimers.org.uk, dementiaaction.org.uk, dementiashare.com, mind.org.uk)
 2. **Data, Statistics & Verifiable Evidence**:
    - Use real, public statistics, numbers, data, and evidence. **NEVER invent, approximate, or fabricate any numbers or percentages.**
-   - For every statistic, claim, or clinical guideline, you **MUST provide a clickable Markdown hyperlink** to the authoritative public resource in question (e.g., `[Alzheimer's Association](https://www.alz.org)` or `[Mayo Clinic](https://www.mayoclinic.org)`). Ensure these links are formatted correctly as standard markdown `[Anchor Text](URL)`.
+   - For every statistic, claim, or clinical guideline, you **MUST provide a clickable HTML hyperlink** to the authoritative public resource in question (e.g., `<a href="https://www.alz.org">Alzheimer's Association</a>` or `<a href="https://www.mayoclinic.org">Mayo Clinic</a>`). Ensure these links are formatted correctly as standard HTML `<a>` tags. Do NOT use markdown.
 
 3. **SEO Foundations**:
    - Maintain excellent semantic keyword density naturally (no keyword stuffing).
@@ -48,18 +48,27 @@ You are an elite healthtech, elderly care, and healthcare copywriter. Write a hi
 
 4. **GEO (Generative Engine Optimization) Best Practices**:
    - **Inverted Pyramid Structure**: Always provide clear, concise, direct answers right at the beginning of each heading/section before expanding into contextual deep-dives.
-   - **Machine-Readable Formats**: Structure heavy informational sections inside easy-to-parse machine-readable formats (Markdown Tables, Bullet points, or structured step frameworks).
+   - **Machine-Readable Formats**: Structure heavy informational sections inside HTML tables or bulleted lists.
+     - **Table Formatting**: Tables must have clearly defined columns, rows, and borders. Always style table headers (`<th>`) with inline styles setting the background-color to BondNow's brand color (`#7c3aed`), color to white, and font-family to 'Inter', sans-serif. Apply: `style="background-color: #7c3aed; color: #ffffff; font-family: 'Inter', sans-serif; padding: 10px; border: 1px solid #2a2a40; text-align: left;"`
+     - Apply thin borders on table cells: `style="padding: 10px; border: 1px solid #2a2a40;"`
+     - Apply table wrapper: `style="border-collapse: collapse; width: 100%; border: 1px solid #2a2a40; margin: 20px 0;"`
    - **People Also Ask Mapping**: Explicitly map relevant 'People Also Ask' questions (if provided in specifications above) into dedicated H2 or H3 question-and-answer pairs within the text to maximize visibility in AI search systems.
-   - **Authority and Entity Clarity**: Maintain absolute objective, authoritative, entity-specific clarity. Minimize ambiguous pronouns (like "this", "it", "they" without clear noun references) or empty marketing hyperbole/hype that causes LLM citation filters to drop sources. Write in an objective, clinical, fact-based tone.
+   - **Authority and Entity Clarity**: Maintain absolute objective, authoritative, entity-specific clarity. Minimize ambiguous pronouns. Write in an objective, clinical, fact-based tone.
 
 5. **Style & Formatting**:
-   - Start immediately with the first **H2** heading (do not write an H1 title, as the CMS handles that).
+   - Write the entire article in raw HTML format. Start immediately with the first **H2** heading (do not write an H1 title). Do NOT include `<html>`, `<head>`, or `<body>` wrappers.
    - Directly answer the search intent in the very first paragraph.
    - Write in short, highly readable paragraphs (2-4 sentences max).
-   - Make the text highly scannable using bolding, bullet points, and numbered lists where appropriate.
+   - Make the text highly scannable using bolding (`<strong>`), bullet points (`<ul>` and `<li>`), and numbered lists (`<ol>` and `<li>`) formatted correctly in HTML.
    - Maintain an expert, warm, and highly professional tone throughout the article.
 
-Return the complete Markdown body ONLY.
+6. **Call to Action (CTA) & BondNow Integration**:
+   - Subtly and naturally provide details on how **BondNow** can be used to help solve the specific issues being discussed in the article.
+   - At the end of the article, you MUST add a relevant and compelling HTML Call to Action (CTA) link for BondNow based on the target audience:
+     - If the target audience is families or general consumers: `<p><a href="https://bondnow.net/order/">Join BondNow</a> with our 2 months money-back guarantee today.</p>`
+     - If the target audience is carehomes, homecarers, or professionals: `<p><a href="https://bondnow.net/pilot/">Join our pilot programme</a> to get started today.</p>`
+
+Return the complete HTML body ONLY. Do NOT wrap the code in markdown code blocks like ```html.
 """
 
 
@@ -78,10 +87,28 @@ async def run_writing(
         if section.key_points:
             outline_text += "   Key points: " + ", ".join(section.key_points) + "\n"
 
-    # Format company context if provided
+    # Load persistent brand context memory cache
+    from src.pipeline.memory import load_brand_context_memory
+    brand_ctx = load_brand_context_memory()
+
+    # Format company context and brand voice parameters
     ctx_section = ""
     if company_context and company_context.strip():
         ctx_section = f"## Company Context (Write From This Perspective)\n{company_context}\n"
+    elif brand_ctx.get("summarized_context"):
+        ctx_section = f"## Company Context (Write From This Perspective)\n{brand_ctx['summarized_context']}\n"
+
+    # Inject specific cached brand variables if present to reinforce brand limits
+    if brand_ctx.get("company_description"):
+        ctx_section += f"- **Company Bio**: {brand_ctx['company_description']}\n"
+    if brand_ctx.get("marketing_strategy"):
+        ctx_section += f"- **Marketing Strategy**: {brand_ctx['marketing_strategy']}\n"
+    if brand_ctx.get("icp"):
+        ctx_section += f"- **Target ICP**: {brand_ctx['icp']}\n"
+    if brand_ctx.get("tone_of_voice"):
+        ctx_section += f"- **Tone of Voice**: {brand_ctx['tone_of_voice']}\n"
+    if ctx_section:
+        ctx_section += "\n"
 
     # Format personalization snippets if provided
     pers_section = ""
@@ -110,6 +137,8 @@ async def run_writing(
     if style_mem and style_mem.strip():
         style_sec = f"## User Writing Style Guidelines (Mistakes to Avoid)\nYou MUST strictly follow these writing style preferences and guidelines learned from the user's manual edits and direct feedback. Do NOT repeat any of these stylistic mistakes:\n{style_mem}\n\n"
 
+    cached_tone = brand_ctx.get("tone_of_voice") or plan.tone or "Expert, empathetic, and authoritative"
+
     prompt = _PROMPT.format(
         company_context_section=ctx_section,
         personalization_section=pers_section,
@@ -121,7 +150,7 @@ async def run_writing(
         secondary_keywords=", ".join(plan.secondary_keywords),
         meta_description=plan.meta_description,
         target_audience=plan.target_audience,
-        tone=plan.tone,
+        tone=cached_tone,
         word_count=plan.word_count_target,
         outline=outline_text,
         angles="\n".join(f"- {a}" for a in plan.content_angles),

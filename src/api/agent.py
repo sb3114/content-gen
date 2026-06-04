@@ -202,6 +202,8 @@ def send_message(
             # Convert result to JSON object/dictionary if possible to conform to standard FunctionResponse schema
             try:
                 res_obj = json.loads(result)
+                if not isinstance(res_obj, dict):
+                    res_obj = {"result": res_obj}
             except Exception:
                 res_obj = {"result": result}
                 
@@ -405,6 +407,8 @@ async def chat_message_stream(payload: ChatMessageRequest):
 
                 try:
                     res_obj = json.loads(result)
+                    if not isinstance(res_obj, dict):
+                        res_obj = {"result": res_obj}
                 except Exception:
                     res_obj = {"result": result}
 

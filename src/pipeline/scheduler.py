@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import zoneinfo
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -16,6 +17,21 @@ scheduler = AsyncIOScheduler()
 
 # Hardcoded inter-job pacing: 10 minutes between pipeline starts
 INTER_JOB_DELAY = timedelta(minutes=10)
+
+
+def is_in_time_window(start_hour: int | None, end_hour: int | None, tz_name: str = "Europe/London") -> bool:
+    if start_hour is None or end_hour is None:
+        return True
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name or "Europe/London")
+    except Exception:
+        tz = zoneinfo.ZoneInfo("Europe/London")
+    now = datetime.now(tz)
+    current_hour = now.hour
+    if start_hour <= end_hour:
+        return start_hour <= current_hour < end_hour
+    else:
+        return current_hour >= start_hour or current_hour < end_hour
 
 
 async def check_scheduled_jobs():
@@ -45,11 +61,13 @@ async def check_pending_jobs():
     Sequential job queue processor with 10-minute pacing.
 
     Rules:
+      0. Stale watchdog: any job stuck in 'running' for >20 min gets reset to 'queued'.
       1. If any job is currently running or resuming → do nothing (pipeline busy).
       2. If the most recently completed/failed job finished < 10 min ago → do nothing (pacing).
       3. Otherwise, pick the oldest queued/pending job and start it.
       4. Recalculate queue_position for all remaining queued jobs.
     """
+    STALE_THRESHOLD = timedelta(minutes=20)
     try:
         async with AsyncSessionLocal() as session:
             # Rule 0: check for LLM rate limit pauses
@@ -66,7 +84,42 @@ async def check_pending_jobs():
                     await session.commit()
                     logger.info("Claude rate limit reset window passed. Cleared active banner and resumed queue.")
 
-            # Rule 1: bail if pipeline is active
+            # Rule 0.5: Check time window restriction for queue processing
+            if settings_obj and settings_obj.queue_start_hour is not None and settings_obj.queue_end_hour is not None:
+                if not is_in_time_window(settings_obj.queue_start_hour, settings_obj.queue_end_hour, settings_obj.queue_timezone):
+                    logger.info(
+                        f"Queue processing paused: current time is outside the allowed scheduling window "
+                        f"({settings_obj.queue_start_hour}:00 to {settings_obj.queue_end_hour}:00 {settings_obj.queue_timezone})."
+                    )
+                    return
+
+            # ── Stale-running watchdog ────────────────────────────────────────
+            # If a job has been stuck in 'running' with no progress for >20 min,
+            # reset it to 'queued' so the queue unblocks and it retries.
+            stale_cutoff = datetime.utcnow() - STALE_THRESHOLD
+            stale_stmt = select(ArticleJob).where(
+                ArticleJob.status.in_([JobStatus.running, JobStatus.resuming]),
+                ArticleJob.updated_at < stale_cutoff
+            )
+            stale_jobs = (await session.exec(stale_stmt)).all()
+            for stale in stale_jobs:
+                logger.warning(
+                    f"Stale job detected: {stale.id} has been '{stale.status.value}' "
+                    f"since {stale.updated_at} (step: {stale.current_step}). Resetting to queued."
+                )
+                stale.status = JobStatus.queued
+                stale.current_step = None
+                stale.error_message = (
+                    f"Auto-reset: job was stuck in '{stale.status.value}' "
+                    f"for >{int(STALE_THRESHOLD.total_seconds()//60)} minutes with no progress."
+                )
+                stale.updated_at = datetime.utcnow()
+                session.add(stale)
+            if stale_jobs:
+                await session.commit()
+                logger.info(f"Reset {len(stale_jobs)} stale running job(s) to queued.")
+
+            # Rule 1: bail if pipeline is still active after watchdog
             active_stmt = select(ArticleJob).where(
                 ArticleJob.status.in_([JobStatus.running, JobStatus.resuming])
             )

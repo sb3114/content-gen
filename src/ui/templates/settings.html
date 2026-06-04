@@ -280,6 +280,86 @@
       </div>
     </div>
 
+    <!-- ── Google Search Console Integration ──────────────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <h2 style="margin:0;">🌐 Google Search Console Indexing</h2>
+        <button type="button" id="btn-test-gsc" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span id="gsc-btn-text">Test Connection</span>
+        </button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Service Account JSON Key</label>
+        <textarea name="gsc_service_account_json" id="gsc_service_account_json" class="form-input" rows="4" placeholder='{"type": "service_account", ...}'>{{ settings.gsc_service_account_json or '' }}</textarea>
+      </div>
+      <p class="form-hint" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Paste the Google Cloud Service Account JSON credentials key here to automatically submit published articles for indexing. The service account email must be added as a Delegated Owner of your site/domain in Google Search Console.</p>
+
+      <!-- Connection Status Display -->
+      <div id="gsc-status-box" style="margin-top: 1rem; display: none; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.85rem; font-family: 'Inter', sans-serif;">
+      </div>
+    </div>
+
+    <!-- ── Google Business Profile Integration ───────────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <h2 style="margin:0;">🏪 Google Business Profile</h2>
+        <button type="button" id="btn-test-gbp" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span id="gbp-btn-text">Test Connection</span>
+        </button>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Client ID</label>
+          <input type="text" name="gbp_client_id" id="gbp_client_id" class="form-input" placeholder="Google OAuth Client ID" value="{{ settings.gbp_client_id or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Client Secret</label>
+          <input type="password" name="gbp_client_secret" id="gbp_client_secret" class="form-input" placeholder="Google OAuth Client Secret" value="{{ settings.gbp_client_secret or '' }}">
+        </div>
+      </div>
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-label">OAuth Refresh Token</label>
+        <textarea name="gbp_access_token" id="gbp_access_token" class="form-input" rows="2" placeholder="Google Refresh Token / Access Token">{{ settings.gbp_access_token or '' }}</textarea>
+      </div>
+      <div class="grid-2" style="margin-top: 1rem;">
+        <div class="form-group">
+          <label class="form-label">Account ID</label>
+          <input type="text" name="gbp_account_id" id="gbp_account_id" class="form-input" placeholder="e.g. accounts/123456789" value="{{ settings.gbp_account_id or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Location ID</label>
+          <input type="text" name="gbp_location_id" id="gbp_location_id" class="form-input" placeholder="e.g. locations/987654321" value="{{ settings.gbp_location_id or '' }}">
+        </div>
+      </div>
+      <p class="form-hint" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Required to publish article updates as standard posts with Call-to-Action buttons on your Google Business Profile page.</p>
+
+      <!-- Connection Status Display -->
+      <div id="gbp-status-box" style="margin-top: 1rem; display: none; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.85rem; font-family: 'Inter', sans-serif;">
+      </div>
+    </div>
+
+    <!-- ── Queue Processing Scheduler Time Window ───────────────── -->
+    <div class="settings-section" style="margin-top: 2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <h2 style="margin:0;">⏳ Queue Processing Schedule Window</h2>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Start Hour (24-hour format)</label>
+          <input type="number" min="0" max="23" name="queue_start_hour" class="form-input" placeholder="e.g. 22" value="{{ settings.queue_start_hour if settings.queue_start_hour is not none else '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">End Hour (24-hour format)</label>
+          <input type="number" min="0" max="23" name="queue_end_hour" class="form-input" placeholder="e.g. 6" value="{{ settings.queue_end_hour if settings.queue_end_hour is not none else '' }}">
+        </div>
+      </div>
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-label">Scheduler Timezone</label>
+        <input type="text" name="queue_timezone" class="form-input" placeholder="Europe/London" value="{{ settings.queue_timezone or 'Europe/London' }}">
+      </div>
+      <p class="form-hint" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">Restrict automated background generation tasks to run only during off-peak hours (e.g. between 10 PM and 6 AM) to manage your API quotas and Claude subscription usage.</p>
+    </div>
+
     <div class="form-actions" style="margin-top: 2rem;">
       <button type="submit" class="btn btn--primary btn--large" style="width:100%;">Save All Settings</button>
     </div>
@@ -446,6 +526,90 @@ document.getElementById('btn-test-claude').addEventListener('click', async () =>
         <div style="font-size:0.8rem; opacity:0.9;">
           <strong>CLI Status:</strong> ${data.cli_version || 'Ready'}<br>
           <strong>Auth Level:</strong> Subscription verified (Headless CLI responsive)
+        </div>
+      `;
+    } else {
+      throw new Error(data.error || 'Connection failed.');
+    }
+  } catch (error) {
+    statusBox.style.color = '#f87171';
+    statusBox.style.borderColor = 'rgba(248,113,113,0.3)';
+    statusBox.style.backgroundColor = 'rgba(248,113,113,0.05)';
+    statusBox.innerHTML = `
+      <div style="font-weight:600; margin-bottom:0.25rem;">❌ Connection Failed</div>
+      <div style="font-size:0.8rem; opacity:0.9;">${error.message}</div>
+    `;
+  } finally {
+    btnText.textContent = 'Test Connection';
+  }
+});
+
+document.getElementById('btn-test-gsc').addEventListener('click', async () => {
+  const btnText = document.getElementById('gsc-btn-text');
+  const statusBox = document.getElementById('gsc-status-box');
+  
+  btnText.textContent = 'Testing connection...';
+  statusBox.style.display = 'block';
+  statusBox.style.borderColor = 'var(--border)';
+  statusBox.style.backgroundColor = 'rgba(0,0,0,0.2)';
+  statusBox.style.color = 'var(--text-dim)';
+  statusBox.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-dim); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; vertical-align:middle;"></span>Testing GSC service account...';
+
+  try {
+    const response = await fetch('/auth/gsc/validate');
+    const data = await response.json();
+    
+    if (data.ok) {
+      statusBox.style.color = '#34d399';
+      statusBox.style.borderColor = 'rgba(52,211,153,0.3)';
+      statusBox.style.backgroundColor = 'rgba(52,211,153,0.05)';
+      statusBox.innerHTML = `
+        <div style="font-weight:600; margin-bottom:0.25rem;">✅ Connection Successful!</div>
+        <div style="font-size:0.8rem; opacity:0.9;">
+          <strong>Email:</strong> ${data.client_email || 'Service Account'}<br>
+          <strong>Status:</strong> Service account verified & token generated successfully.
+        </div>
+      `;
+    } else {
+      throw new Error(data.error || 'Connection failed.');
+    }
+  } catch (error) {
+    statusBox.style.color = '#f87171';
+    statusBox.style.borderColor = 'rgba(248,113,113,0.3)';
+    statusBox.style.backgroundColor = 'rgba(248,113,113,0.05)';
+    statusBox.innerHTML = `
+      <div style="font-weight:600; margin-bottom:0.25rem;">❌ Connection Failed</div>
+      <div style="font-size:0.8rem; opacity:0.9;">${error.message}</div>
+    `;
+  } finally {
+    btnText.textContent = 'Test Connection';
+  }
+});
+
+document.getElementById('btn-test-gbp').addEventListener('click', async () => {
+  const btnText = document.getElementById('gbp-btn-text');
+  const statusBox = document.getElementById('gbp-status-box');
+  
+  btnText.textContent = 'Testing connection...';
+  statusBox.style.display = 'block';
+  statusBox.style.borderColor = 'var(--border)';
+  statusBox.style.backgroundColor = 'rgba(0,0,0,0.2)';
+  statusBox.style.color = 'var(--text-dim)';
+  statusBox.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-dim); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; vertical-align:middle;"></span>Verifying GBP OAuth credentials...';
+
+  try {
+    const response = await fetch('/auth/gbp/validate');
+    const data = await response.json();
+    
+    if (data.ok) {
+      statusBox.style.color = '#34d399';
+      statusBox.style.borderColor = 'rgba(52,211,153,0.3)';
+      statusBox.style.backgroundColor = 'rgba(52,211,153,0.05)';
+      statusBox.innerHTML = `
+        <div style="font-weight:600; margin-bottom:0.25rem;">✅ Connection Successful!</div>
+        <div style="font-size:0.8rem; opacity:0.9;">
+          <strong>Profile Title:</strong> ${data.location_title}<br>
+          <strong>Status:</strong> OAuth refresh and location lookup succeeded.
         </div>
       `;
     } else {
