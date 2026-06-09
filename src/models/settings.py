@@ -25,6 +25,10 @@ class CompanySettings(SQLModel, table=True):
     core_pillars: Optional[str] = Field(default=None, sa_column=Column(Text))
     tone_of_voice: Optional[str] = Field(default=None, sa_column=Column(Text))
     audiences: Optional[str] = Field(default=None, sa_column=Column(Text))
+    target_audience: Optional[str] = Field(default=None, sa_column=Column(Text))
+    personas: Optional[str] = Field(default=None, sa_column=Column(Text))
+    pain_points: Optional[str] = Field(default=None, sa_column=Column(Text))
+    messaging_framework: Optional[str] = Field(default=None, sa_column=Column(Text))
     company_description: Optional[str] = Field(default=None, sa_column=Column(Text))
     summarized_context: Optional[str] = Field(default=None, sa_column=Column(Text))
 

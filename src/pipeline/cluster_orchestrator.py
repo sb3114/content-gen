@@ -85,6 +85,18 @@ async def run_cluster_plan_stage1(plan_id: str):
         core_pillars_context = (db_settings.core_pillars if db_settings else None) or ""
         company_description = (db_settings.company_description if db_settings else None) or ""
         icp = (db_settings.icp if db_settings else None) or ""
+        target_audience = (db_settings.target_audience if db_settings else None) or ""
+        personas = (db_settings.personas if db_settings else None) or ""
+        pain_points = (db_settings.pain_points if db_settings else None) or ""
+        messaging_framework = (db_settings.messaging_framework if db_settings else None) or ""
+        
+        business_context_str = f"""Company Description: {company_description}
+Target Ideal Customer Profile (ICP): {icp}
+Target Audience: {target_audience}
+Personas: {personas}
+Pain Points: {pain_points}
+Messaging Framework: {messaging_framework}
+Core Content Pillars & Messaging Context: {core_pillars_context}"""
         
         plan_seed = plan.seed
         min_search_volume = plan.min_search_volume
@@ -127,16 +139,14 @@ async def run_cluster_plan_stage1(plan_id: str):
         if plan_seed == "Brand Strategy":
             seed_instruction = "No specific campaign seed theme was provided; we are building our strategy directly from our core brand pillars."
 
-        deconstruct_prompt = f"""\
-You are an expert SEO Strategist.
+        sys_instr = f"""You are an expert SEO Strategist.
 {seed_instruction}
 
 === COMPANY BUSINESS CONTEXT ===
-Company Description: {company_description}
-Target Ideal Customer Profile (ICP): {icp}
-Core Content Pillars & Messaging Context: {core_pillars_context}
-================================
+{business_context_str}
+================================"""
 
+        deconstruct_prompt = f"""\
 Your task is to:
 1. Deconstruct all major content pillars from the company context.
    You MUST deconstruct the exact core brand pillars provided in 'Core Content Pillars & Messaging Context'. Do NOT make up new pillars. Maintain their names as defined in the context.
@@ -195,15 +205,14 @@ Return the result in strict JSON format matching this exact schema:
             # B. If we have less than 4 keywords for this brand pillar, run the LLM fallback for this specific pillar!
             if len(pillar_kws) < 4:
                 logger.info(f"Pillar '{p_name}' has only {len(pillar_kws)} keywords. Invoking high-fidelity LLM discovery to enrich...")
+                sys_instr = f"""You are an advanced SEO discovery multi-agent pipeline simulating DataForSEO's Suggestions and Google SERP PAA harvesting engines.
+=== COMPANY BUSINESS CONTEXT ===
+{business_context_str}
+================================"""
+                
                 fallback_prompt = f"""\
-You are an advanced SEO discovery multi-agent pipeline simulating DataForSEO's Suggestions and Google SERP PAA harvesting engines.
 For our brand pillar "{p_name}", generate exactly 4 highly relevant, high-intent keywords (1 hub and 3 spokes) that perfectly match our brand strategy and our target ICP.
 Ensure you also provide 3 "People Also Ask" questions for each.
-
-=== COMPANY BUSINESS CONTEXT ===
-Company Description: {company_description}
-Target ICP: {icp}
-================================
 
 We require keyword discovery with these exact bounds:
 - Search Volume: between {min_search_volume} and {max_search_volume} searches/month.
@@ -232,6 +241,7 @@ Return your response in strict JSON matching this exact schema:
                 fallback_text, _ = await call_llm(
                     prompt=fallback_prompt,
                     tier="sonnet",
+                    system_instruction=sys_instr,
                     use_json=True,
                     db_settings=db_settings
                 )
@@ -346,17 +356,15 @@ Return your response in strict JSON matching this exact schema:
             # B. If no competitor keywords could be found/extracted via live DataForSEO, fall back to high-fidelity AI-based competitor gap check!
             if not competitor_gap_kws:
                 logger.info("Live competitor extraction returned no results. Running AI-based competitor gap discovery fallback...")
+                sys_instr = f"""You are an expert SEO Strategist simulating competitor gap discovery.
+=== COMPANY BUSINESS CONTEXT ===
+{business_context_str}
+================================"""
+                
                 comp_prompt = f"""\
-You are an expert SEO Strategist simulating competitor gap discovery.
 We have provided a competitor website: "{competitor_url}"
 Analyze the likely topics they rank for, but focus PURELY on the intersection of our brand's ICP and business context.
 Ignore topics that are not relevant to our business context (e.g. if the competitor discusses TV remotes, but we sell communication/elderly apps, ignore remotes; focus purely on overlapping communication and safety gaps).
-
-=== COMPANY BUSINESS CONTEXT ===
-Company Description: {company_description}
-Target ICP: {icp}
-Core Content Pillars & Messaging Context: {core_pillars_context}
-================================
 
 Generate exactly 2 high-performing keywords driving their traffic that represent gaps we can fill (tag with "role": "hub", "source": "competitor_gap").
 For each, feed it as a seed to find 2 related spoke keywords covering angles they missed (tag with "role": "spoke", "source": "competitor_spoke").
@@ -380,6 +388,7 @@ Return your response in strict JSON matching this exact schema:
                 comp_text, _ = await call_llm(
                     prompt=comp_prompt,
                     tier="sonnet",
+                    system_instruction=sys_instr,
                     use_json=True,
                     db_settings=db_settings
                 )
@@ -502,9 +511,23 @@ async def run_cluster_plan_stage2(plan_id: str):
         db_settings = await session.get(CompanySettings, 1)
         company_description = (db_settings.company_description if db_settings else None) or ""
         icp = (db_settings.icp if db_settings else None) or ""
+        core_pillars_context = (db_settings.core_pillars if db_settings else None) or ""
+        target_audience = (db_settings.target_audience if db_settings else None) or ""
+        personas = (db_settings.personas if db_settings else None) or ""
+        pain_points = (db_settings.pain_points if db_settings else None) or ""
+        messaging_framework = (db_settings.messaging_framework if db_settings else None) or ""
+        
+        business_context_str = f"""Company Description: {company_description}
+Target Ideal Customer Profile (ICP): {icp}
+Target Audience: {target_audience}
+Personas: {personas}
+Pain Points: {pain_points}
+Messaging Framework: {messaging_framework}
+Core Content Pillars & Messaging Context: {core_pillars_context}"""
         
         plan_seed = plan.seed
         plan_keywords = list(plan.keywords or [])
+        audience_split = plan.audience_split or []
         
         plan.status = "generating_clusters"
         plan.current_step = "strategy_generation"
@@ -555,23 +578,42 @@ async def run_cluster_plan_stage2(plan_id: str):
                 kws_str += f"  - Google PAA Questions: {', '.join(s['paa_questions'])}\n"
         kws_str += "\n"
 
-    brand_context = f"Company Context: {company_description}\nTarget ICP: {icp}\n"
+    sys_instr = f"""You are an expert Chief Strategy Officer and SEO Architect.
+=== COMPANY BUSINESS CONTEXT ===
+{business_context_str}
+================================"""
+
+    # Build audience split instruction if configured
+    audience_split_section = ""
+    if audience_split:
+        split_lines = "\n".join(
+            f"  - {entry['persona']}: {entry['percentage']}% of articles"
+            for entry in audience_split
+        )
+        audience_split_section = f"""
+AUDIENCE SPLIT DIRECTIVE:
+The client has specified a target audience split for this content plan. You MUST distribute the total number of articles proportionally across these personas. For each article task, set the `"target_persona"` field to the persona it is written for.
+
+Target Audience Distribution:
+{split_lines}
+
+Apply this split as closely as possible across all pillars. When rounding, favour the higher-percentage personas. Hub/Cornerstone articles may target the broadest or most strategic persona.
+"""
 
     prompt = f"""\
-You are an expert Chief Strategy Officer and SEO Architect.
 Your task is to plan a comprehensive rolling 90-Day Hub & Spoke Content Matrix using the approved keyword pool below.
-{brand_context}
 Seed Topic: "{plan_seed}"
 
 Approved Content Pillars & Keywords Matrix:
 {kws_str}
-
+{audience_split_section}
 CRITICAL STRUCTURAL RULES:
 1. For each Pillar:
    - Create exactly 1 Cornerstone Hub article topic targeting the designated **HUB KEYWORD**. This must be a comprehensive, long-form guide. Set `"is_hub": true`.
    - Create exactly 1 supporting Spoke article topic for each designated **SPOKE KEYWORD**. Each spoke handles a single, granular question/sub-topic and MUST link back to the Hub. Set `"is_hub": false`.
 2. Map the Google "People Also Ask" questions provided for each keyword directly into the article outline parameters.
 3. Define the internal linking plan explicitly in the `"internal_linking_plan"` field (e.g. "Spoke links to Cornerstone Hub guide on X", or "Hub Cornerstone links to Y").
+{"4. Assign `\"target_persona\"` to every task according to the AUDIENCE SPLIT DIRECTIVE above." if audience_split else ""}
 
 Return your response in strict JSON format matching this exact schema:
 {{
@@ -582,6 +624,7 @@ Return your response in strict JSON format matching this exact schema:
       "secondary_keywords": ["keyword idea 1", "keyword idea 2"],
       "topic": "An engaging, click-worthy article title",
       "is_hub": true,
+      "target_persona": "{audience_split[0]['persona'] if audience_split else 'General'}",
       "internal_linking_plan": "Internal linking instructions (e.g., links back to Hub Cornerstone: [Hub Title])",
       "evaluation_metrics": {{
         "search_volume": 850,
@@ -597,10 +640,10 @@ Return your response in strict JSON format matching this exact schema:
 }}
 """
     try:
-        # Use tier "sonnet" for complex structural generation
         text, _ = await call_llm(
             prompt=prompt,
             tier="sonnet",
+            system_instruction=sys_instr,
             use_json=True,
             db_settings=db_settings
         )

@@ -46,6 +46,10 @@ async def save_settings(
     core_pillars: str = Form(None),
     tone_of_voice: str = Form(None),
     audiences: str = Form(None),
+    target_audience: str = Form(None),
+    personas: str = Form(None),
+    pain_points: str = Form(None),
+    messaging_framework: str = Form(None),
     company_description: str = Form(None),
     llm_provider: str = Form("gemini"),
     claude_setup_token: str = Form(None),
@@ -90,6 +94,10 @@ async def save_settings(
         settings_obj.core_pillars != core_pillars or
         settings_obj.tone_of_voice != tone_of_voice or
         settings_obj.audiences != audiences or
+        settings_obj.target_audience != target_audience or
+        settings_obj.personas != personas or
+        settings_obj.pain_points != pain_points or
+        settings_obj.messaging_framework != messaging_framework or
         settings_obj.company_description != company_description
     )
 
@@ -98,6 +106,10 @@ async def save_settings(
     settings_obj.core_pillars = core_pillars
     settings_obj.tone_of_voice = tone_of_voice
     settings_obj.audiences = audiences
+    settings_obj.target_audience = target_audience
+    settings_obj.personas = personas
+    settings_obj.pain_points = pain_points
+    settings_obj.messaging_framework = messaging_framework
     settings_obj.company_description = company_description
 
     # Update LLM Settings

@@ -244,7 +244,8 @@ def tool_delete_job(job_id: str) -> str:
 def tool_generate_90_day_plan(
     seed_topic: str,
     num_pillars: int = 3,
-    spokes_per_pillar: int = 3
+    spokes_per_pillar: int = 3,
+    audience_split: Optional[List[dict]] = None
 ) -> str:
     """
     Generates a Rolling 90-Day Hub & Spoke content plan (structural clusters)
@@ -254,6 +255,10 @@ def tool_generate_90_day_plan(
         seed_topic: A short seed topic (e.g. 'senior fitness tracking devices') to plan around.
         num_pillars: The number of core messaging pillars (Hubs) to plan. Default is 3.
         spokes_per_pillar: The number of article topics (Spokes) under each pillar. Default is 3.
+        audience_split: An ordered list of dicts specifying how to split content across audience personas.
+            Each dict must have 'persona' (str) and 'percentage' (int, must sum to 100).
+            Example: [{"persona": "CTOs", "percentage": 40}, {"persona": "Developers", "percentage": 60}].
+            If provided, the orchestrator will distribute articles proportionally across these personas.
     """
     # Dynamically read and align count with the actual number of pillars configured in CompanySettings via LLM
     def get_db_pillars_count():
@@ -323,6 +328,15 @@ Return a strict JSON response with a single key "num_pillars" containing the int
             "error": "Not enough days in the 90-day content calendar."
         })
 
+    # Validate audience_split if provided
+    if audience_split:
+        total_pct = sum(int(a.get("percentage", 0)) for a in audience_split)
+        if total_pct != 100:
+            return json.dumps({
+                "error": f"Audience split percentages must sum to 100. Got {total_pct}%. "
+                         f"Please adjust: {audience_split}"
+            })
+
     async def _run():
         local_engine, LocalSession = _make_agent_session()
         try:
@@ -345,7 +359,8 @@ Return a strict JSON response with a single key "num_pillars" containing the int
                 db_plan = ClusterPlan(
                     seed=seed_topic,
                     tasks=plan_data.get("tasks", []),
-                    approved=False
+                    approved=False,
+                    audience_split=audience_split or None
                 )
                 session.add(db_plan)
                 await session.commit()
@@ -354,7 +369,14 @@ Return a strict JSON response with a single key "num_pillars" containing the int
                 tasks = plan_data.get("tasks", [])
                 message = f"### 📅 Generated Rolling 90-Day Hub & Spoke Content Strategy\n"
                 message += f"**Seed Topic**: `{seed_topic}`\n"
-                message += f"**Database ID**: `{db_plan.id}`\n\n"
+                message += f"**Database ID**: `{db_plan.id}`\n"
+
+                # Show audience split summary if provided
+                if audience_split:
+                    message += f"\n**🎯 Audience Split**:\n"
+                    for entry in audience_split:
+                        message += f"- `{entry['persona']}`: {entry['percentage']}%\n"
+                message += "\n"
 
                 pillars = {}
                 for t in tasks:
@@ -506,9 +528,16 @@ You are the Content Engine Agent. You have access to the following tools:
 4. tool_delete_job: Deletes a job from the content pipeline.
    Args: job_id (string).
 5. tool_generate_90_day_plan: Generates a Hub & Spoke rolling strategy.
-   Args: seed_topic (string), num_pillars (int, optional), spokes_per_pillar (int, optional).
+   Args: seed_topic (string), num_pillars (int, optional), spokes_per_pillar (int, optional),
+   audience_split (array of objects, optional) — e.g. [{"persona": "CTOs", "percentage": 40}, {"persona": "Developers", "percentage": 60}].
+   Percentages must sum to 100. Each article task will be tagged with a target_persona field.
 6. tool_approve_and_schedule_latest_plan: Approves the latest plan and schedules all generated child jobs.
    Args: publish_targets (array of strings, optional).
+7. tool_list_cluster_plans: Lists cluster plans. Args: status_filter (string, optional).
+8. tool_pause_cluster_plan: Pauses a cluster plan, preventing further processing. Args: plan_id (string).
+9. tool_resume_cluster_plan: Resumes a paused cluster plan. Args: plan_id (string).
+10. tool_delete_cluster_plan: Deletes a cluster plan completely. Args: plan_id (string).
+11. tool_modify_cluster_plan: Modifies a cluster plan properties. Args: plan_id (string), modifications_json (string).
 
 ## Conversation History & Latest Messages
 {history_text}
@@ -630,11 +659,25 @@ def get_agent_chat(history: List[dict] = []):
         sys_instr += f"- **Core Pillars / Focus Topics**: {brand_ctx['core_pillars']}\n"
     if brand_ctx.get("audiences"):
         sys_instr += f"- **Target Audiences**: {brand_ctx['audiences']}\n"
+    if brand_ctx.get("target_audience"):
+        sys_instr += f"- **Target Audience**: {brand_ctx['target_audience']}\n"
+    if brand_ctx.get("personas"):
+        sys_instr += f"- **Personas**: {brand_ctx['personas']}\n"
+    if brand_ctx.get("pain_points"):
+        sys_instr += f"- **Pain Points**: {brand_ctx['pain_points']}\n"
+    if brand_ctx.get("messaging_framework"):
+        sys_instr += f"- **Messaging Framework**: {brand_ctx['messaging_framework']}\n"
 
     sys_instr += (
         "\nUse this brand context to inform the style, voice, vocabulary, and topic generation. "
         "When generating 90-day content strategies, plans, or individual jobs, prioritize aligning with the listed "
-        "Core Pillars and target audiences."
+        "Core Pillars and target audiences.\n"
+        "IMPORTANT DIRECTIVE: Before you trigger the content plan orchestrator (generating a 90-day plan), "
+        "you MUST read the whole strategy context and actively ask the user clarifying questions. Specifically:\n"
+        "  1. Which specific audience personas (from the Personas list above) should this plan target?\n"
+        "  2. What is the desired content split between these personas? (e.g. 50% CTOs, 30% Developers, 20% Marketing Managers — must sum to 100%)\n"
+        "  3. Are there specific pain points or messaging angles to prioritise for each persona?\n"
+        "Wait for their response, then call tool_generate_90_day_plan with the audience_split parameter populated based on their answers."
     )
 
     if claude_token:
@@ -719,6 +762,18 @@ def get_agent_chat(history: List[dict] = []):
                                     "spokes_per_pillar": types.Schema(
                                         type="INTEGER",
                                         description="The number of article topics (Spokes) under each pillar. Default is 3."
+                                    ),
+                                    "audience_split": types.Schema(
+                                        type="ARRAY",
+                                        description="Optional distribution of content across audience personas. Each item must have 'persona' (string) and 'percentage' (integer). Percentages must sum to 100.",
+                                        items=types.Schema(
+                                            type="OBJECT",
+                                            properties={
+                                                "persona": types.Schema(type="STRING", description="The persona name, e.g. 'CTOs', 'Developers'."),
+                                                "percentage": types.Schema(type="INTEGER", description="The percentage of articles for this persona (0-100).")
+                                            },
+                                            required=["persona", "percentage"]
+                                        )
                                     )
                                 },
                                 required=["seed_topic"]
@@ -737,6 +792,61 @@ def get_agent_chat(history: List[dict] = []):
                                     )
                                 }
                             )
+                        ),
+                        types.FunctionDeclaration(
+                            name="tool_list_cluster_plans",
+                            description="Lists cluster plans. Optional filter by status.",
+                            parameters=types.Schema(
+                                type="OBJECT",
+                                properties={
+                                    "status_filter": types.Schema(type="STRING", description="Optional status filter (e.g. 'planning', 'paused').")
+                                }
+                            )
+                        ),
+                        types.FunctionDeclaration(
+                            name="tool_pause_cluster_plan",
+                            description="Pauses a cluster plan, preventing further processing.",
+                            parameters=types.Schema(
+                                type="OBJECT",
+                                properties={
+                                    "plan_id": types.Schema(type="STRING", description="The ID of the plan to pause.")
+                                },
+                                required=["plan_id"]
+                            )
+                        ),
+                        types.FunctionDeclaration(
+                            name="tool_resume_cluster_plan",
+                            description="Resumes a paused cluster plan.",
+                            parameters=types.Schema(
+                                type="OBJECT",
+                                properties={
+                                    "plan_id": types.Schema(type="STRING", description="The ID of the plan to resume.")
+                                },
+                                required=["plan_id"]
+                            )
+                        ),
+                        types.FunctionDeclaration(
+                            name="tool_delete_cluster_plan",
+                            description="Deletes a cluster plan completely.",
+                            parameters=types.Schema(
+                                type="OBJECT",
+                                properties={
+                                    "plan_id": types.Schema(type="STRING", description="The ID of the plan to delete.")
+                                },
+                                required=["plan_id"]
+                            )
+                        ),
+                        types.FunctionDeclaration(
+                            name="tool_modify_cluster_plan",
+                            description="Modifies a cluster plan properties.",
+                            parameters=types.Schema(
+                                type="OBJECT",
+                                properties={
+                                    "plan_id": types.Schema(type="STRING", description="The ID of the plan to modify."),
+                                    "modifications_json": types.Schema(type="STRING", description="A JSON string representing the properties to update.")
+                                },
+                                required=["plan_id", "modifications_json"]
+                            )
                         )
                     ]
                 )
@@ -745,3 +855,134 @@ def get_agent_chat(history: List[dict] = []):
         ),
         history=contents
     )
+
+def tool_list_cluster_plans(status_filter: str = None) -> str:
+    """Lists cluster plans. Optional filter by status."""
+    engine, LocalSession = _make_agent_session()
+    import asyncio
+    async def _run():
+        try:
+            async with LocalSession() as session:
+                query = select(ClusterPlan)
+                if status_filter:
+                    query = query.where(ClusterPlan.status == status_filter)
+                plans = (await session.exec(query)).all()
+                if not plans:
+                    return json.dumps({"status": "success", "message": "No cluster plans found."})
+                res = []
+                for p in plans:
+                    res.append({
+                        "id": str(p.id),
+                        "seed": p.seed,
+                        "status": p.status,
+                        "created_at": p.created_at.isoformat(),
+                        "num_keywords": len(p.keywords or [])
+                    })
+                return json.dumps({"status": "success", "plans": res})
+        finally:
+            await engine.dispose()
+    return asyncio.run(_run())
+
+def tool_pause_cluster_plan(plan_id: str) -> str:
+    """Pauses a cluster plan and all its associated queued article jobs, preventing further processing."""
+    engine, LocalSession = _make_agent_session()
+    import asyncio
+    async def _run():
+        try:
+            async with LocalSession() as session:
+                p = await session.get(ClusterPlan, plan_id)
+                if not p: return json.dumps({"error": f"Plan {plan_id} not found."})
+                p.status = "paused"
+                session.add(p)
+                
+                # Cascade to article jobs
+                jobs_query = select(ArticleJob).where(ArticleJob.cluster_plan_id == plan_id)
+                jobs = (await session.exec(jobs_query)).all()
+                paused_count = 0
+                for job in jobs:
+                    if job.status in (JobStatus.queued, JobStatus.pending, JobStatus.pending_review, JobStatus.resuming):
+                        job.status = JobStatus.paused
+                        session.add(job)
+                        paused_count += 1
+
+                await session.commit()
+                return json.dumps({"status": "success", "message": f"Cluster plan {plan_id} paused along with {paused_count} associated jobs."})
+        finally:
+            await engine.dispose()
+    return asyncio.run(_run())
+
+def tool_resume_cluster_plan(plan_id: str) -> str:
+    """Resumes a paused cluster plan and all its associated paused article jobs."""
+    engine, LocalSession = _make_agent_session()
+    import asyncio
+    async def _run():
+        try:
+            async with LocalSession() as session:
+                p = await session.get(ClusterPlan, plan_id)
+                if not p: return json.dumps({"error": f"Plan {plan_id} not found."})
+                p.status = "planning" # restart from planning or current step
+                session.add(p)
+                
+                # Cascade to article jobs
+                jobs_query = select(ArticleJob).where(ArticleJob.cluster_plan_id == plan_id)
+                jobs = (await session.exec(jobs_query)).all()
+                resumed_count = 0
+                for job in jobs:
+                    if job.status == JobStatus.paused:
+                        job.status = JobStatus.queued
+                        session.add(job)
+                        resumed_count += 1
+
+                await session.commit()
+                return json.dumps({"status": "success", "message": f"Cluster plan {plan_id} resumed along with {resumed_count} associated jobs."})
+        finally:
+            await engine.dispose()
+    return asyncio.run(_run())
+
+def tool_delete_cluster_plan(plan_id: str) -> str:
+    """Deletes a cluster plan completely, along with its associated article jobs."""
+    engine, LocalSession = _make_agent_session()
+    import asyncio
+    async def _run():
+        try:
+            async with LocalSession() as session:
+                p = await session.get(ClusterPlan, plan_id)
+                if not p: return json.dumps({"error": f"Plan {plan_id} not found."})
+                
+                # Cascade to article jobs
+                jobs_query = select(ArticleJob).where(ArticleJob.cluster_plan_id == plan_id)
+                jobs = (await session.exec(jobs_query)).all()
+                deleted_count = 0
+                for job in jobs:
+                    await session.delete(job)
+                    deleted_count += 1
+
+                await session.delete(p)
+                await session.commit()
+                return json.dumps({"status": "success", "message": f"Cluster plan {plan_id} deleted along with {deleted_count} associated jobs."})
+        finally:
+            await engine.dispose()
+    return asyncio.run(_run())
+
+def tool_modify_cluster_plan(plan_id: str, modifications_json: str) -> str:
+    """Modifies a cluster plan properties. Expects modifications_json as a JSON string with keys to update."""
+    engine, LocalSession = _make_agent_session()
+    import asyncio
+    async def _run():
+        try:
+            mods = json.loads(modifications_json)
+            async with LocalSession() as session:
+                p = await session.get(ClusterPlan, plan_id)
+                if not p: return json.dumps({"error": f"Plan {plan_id} not found."})
+                for k, v in mods.items():
+                    if hasattr(p, k):
+                        setattr(p, k, v)
+                session.add(p)
+                await session.commit()
+                return json.dumps({"status": "success", "message": f"Cluster plan {plan_id} updated."})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            await engine.dispose()
+    return asyncio.run(_run())
+

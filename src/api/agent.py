@@ -175,7 +175,12 @@ def send_message(
                 tool_edit_job,
                 tool_delete_job,
                 tool_generate_90_day_plan,
-                tool_approve_and_schedule_latest_plan
+                tool_approve_and_schedule_latest_plan,
+                tool_list_cluster_plans,
+                tool_pause_cluster_plan,
+                tool_resume_cluster_plan,
+                tool_delete_cluster_plan,
+                tool_modify_cluster_plan
             )
             
             try:
@@ -193,6 +198,16 @@ def send_message(
                     result = execute_tool(tool_generate_90_day_plan, **args)
                 elif name_clean == "approve_and_schedule_latest_plan":
                     result = execute_tool(tool_approve_and_schedule_latest_plan, **args)
+                elif name_clean == "list_cluster_plans":
+                    result = execute_tool(tool_list_cluster_plans, **args)
+                elif name_clean == "pause_cluster_plan":
+                    result = execute_tool(tool_pause_cluster_plan, **args)
+                elif name_clean == "resume_cluster_plan":
+                    result = execute_tool(tool_resume_cluster_plan, **args)
+                elif name_clean == "delete_cluster_plan":
+                    result = execute_tool(tool_delete_cluster_plan, **args)
+                elif name_clean == "modify_cluster_plan":
+                    result = execute_tool(tool_modify_cluster_plan, **args)
                 else:
                     result = json.dumps({"error": f"Tool '{name}' is not supported."})
             except Exception as e:
@@ -364,7 +379,12 @@ async def chat_message_stream(payload: ChatMessageRequest):
             tool_edit_job,
             tool_delete_job,
             tool_generate_90_day_plan,
-            tool_approve_and_schedule_latest_plan
+            tool_approve_and_schedule_latest_plan,
+            tool_list_cluster_plans,
+            tool_pause_cluster_plan,
+            tool_resume_cluster_plan,
+            tool_delete_cluster_plan,
+            tool_modify_cluster_plan
         )
 
         while True:
@@ -395,6 +415,16 @@ async def chat_message_stream(payload: ChatMessageRequest):
                         result = execute_tool(tool_generate_90_day_plan, **args)
                     elif name_clean == "approve_and_schedule_latest_plan":
                         result = execute_tool(tool_approve_and_schedule_latest_plan, **args)
+                    elif name_clean == "list_cluster_plans":
+                        result = execute_tool(tool_list_cluster_plans, **args)
+                    elif name_clean == "pause_cluster_plan":
+                        result = execute_tool(tool_pause_cluster_plan, **args)
+                    elif name_clean == "resume_cluster_plan":
+                        result = execute_tool(tool_resume_cluster_plan, **args)
+                    elif name_clean == "delete_cluster_plan":
+                        result = execute_tool(tool_delete_cluster_plan, **args)
+                    elif name_clean == "modify_cluster_plan":
+                        result = execute_tool(tool_modify_cluster_plan, **args)
                     else:
                         result = json.dumps({"error": f"Tool '{name}' is not supported."})
                 except Exception as e:

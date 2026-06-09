@@ -93,9 +93,26 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Target Audiences</label>
-        <textarea name="audiences" class="form-input" rows="2">{{ settings.audiences or '' }}</textarea>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Target Audience</label>
+          <textarea name="target_audience" class="form-input" rows="2">{{ settings.target_audience or settings.audiences or '' }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Personas</label>
+          <textarea name="personas" class="form-input" rows="2">{{ settings.personas or '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Pain Points</label>
+          <textarea name="pain_points" class="form-input" rows="2">{{ settings.pain_points or '' }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Messaging Framework</label>
+          <textarea name="messaging_framework" class="form-input" rows="2">{{ settings.messaging_framework or '' }}</textarea>
+        </div>
       </div>
 
       {% if settings.summarized_context %}

@@ -146,4 +146,7 @@ class ClusterPlan(SQLModel, table=True):
     max_difficulty: int = Field(default=40)
     competitor_url: Optional[str] = Field(default=None)
 
+    # Audience targeting split — e.g. [{"persona": "CTOs", "percentage": 40}, {"persona": "Developers", "percentage": 60}]
+    audience_split: Optional[List[dict]] = Field(default=None, sa_column=Column(JSON))
+
 
