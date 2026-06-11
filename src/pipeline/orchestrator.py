@@ -165,7 +165,7 @@ async def run_pipeline(job_id: str) -> None:
             full_context = company_context + "\n" + published_memory
 
         # ── Decision: newsletter summary bypasses keyword gate ────────────────
-        is_newsletter_summary = (job.newsletter_type == "summary" and publish_newsletter)
+        is_newsletter_summary = getattr(job, "is_newsletter", False)
 
         # ── Step 1: Research ──────────────────────────────────────────────────
         if not is_newsletter_summary and (not job.keyword_data or not job.scraped_content):
@@ -277,6 +277,10 @@ async def run_pipeline(job_id: str) -> None:
                     current_step="keyword_confirmation",
                 )
                 return
+        elif is_newsletter_summary:
+            logger.info(f"Job {job_id}: Skipping keyword gate (Newsletter Summary).")
+            await resume_pipeline(job_id)
+            return
 
     except Exception as exc:
         from src.pipeline.llm import LLMRateLimitException
@@ -352,7 +356,7 @@ async def resume_pipeline(job_id: str) -> None:
             published_memory = await get_published_memory()
             full_context = company_context + "\n" + published_memory
 
-        is_newsletter_summary = (job.newsletter_type == "summary" and publish_newsletter)
+        is_newsletter_summary = getattr(job, "is_newsletter", False)
 
         # Determine the focus keyword: user-confirmed > AI-chosen > seed
         focus_kw = confirmed_keyword or ""
@@ -463,7 +467,7 @@ async def resume_pipeline(job_id: str) -> None:
                     if url and url not in comp_links:
                         comp_links.append(url)
 
-            article_md, write_usage = await run_writing(
+            article_md, write_usage, nano_banana_prompt = await run_writing(
                 plan,
                 company_context=full_context,
                 personalization_snippets=job.personalization_snippets or "",
@@ -482,6 +486,7 @@ async def resume_pipeline(job_id: str) -> None:
                         job_id,
                         article_markdown=article_md,
                         reviewed_markdown=article_md,
+                        nano_banana_prompt=nano_banana_prompt,
                         input_tokens_used=input_tokens,
                         output_tokens_used=output_tokens,
                     )
@@ -492,6 +497,7 @@ async def resume_pipeline(job_id: str) -> None:
                 current_step="linkedin" if publish_linkedin else ("newsletter" if publish_newsletter else None),
                 article_markdown=article_md,
                 reviewed_markdown=article_md,
+                nano_banana_prompt=nano_banana_prompt,
                 input_tokens_used=input_tokens,
                 output_tokens_used=output_tokens,
             )
@@ -587,18 +593,21 @@ async def resume_pipeline(job_id: str) -> None:
             logger.info(f"Job {job_id}: Step 5 (Newsletter Adaptation) completed successfully.")
 
         # Generate the 3 image candidates for the review gate
-        try:
-            from src.pipeline.image_gen import generate_images_for_job
-            logger.info(f"Job {job_id}: Generating 3 image candidates...")
-            async with AsyncSessionLocal() as session:
-                db_job = await session.get(ArticleJob, job_id)
-                db_settings = await session.get(CompanySettings, 1)
-            images = await generate_images_for_job(db_job, db_settings=db_settings)
-            await _save(job_id, generated_images=images)
-            if images:
-                await _save(job_id, selected_image=images[0])
-        except Exception as img_err:
-            logger.error(f"Job {job_id}: Failed to generate initial images: {img_err}")
+        if not job.generated_images:
+            try:
+                from src.pipeline.image_gen import generate_images_for_job
+                logger.info(f"Job {job_id}: Generating 3 image candidates...")
+                async with AsyncSessionLocal() as session:
+                    db_job = await session.get(ArticleJob, job_id)
+                    db_settings = await session.get(CompanySettings, 1)
+                images = await generate_images_for_job(db_job, db_settings=db_settings)
+                await _save(job_id, generated_images=images, nano_banana_prompt=db_job.nano_banana_prompt)
+                if images:
+                    await _save(job_id, selected_image=images[0])
+            except Exception as img_err:
+                logger.error(f"Job {job_id}: Failed to generate initial images: {img_err}")
+        else:
+            logger.info(f"Job {job_id}: Image candidates already generated. Skipping.")
 
         # ── Gate: Auto-approve or Human Review ────────────────────────────────
         if auto_approve:
@@ -726,7 +735,7 @@ async def publish_job(job_id: str) -> None:
                 try:
                     filename = os.path.basename(filepath)
                     logger.info(f"Job {job_id}: Uploading selected image to WordPress media library...")
-                    wp_media = await wp.upload_media(filename, image_bytes)
+                    wp_media = await wp.upload_media(filename, image_bytes, alt_text=title)
                     featured_media_id = wp_media.get("id")
                     logger.info(f"Job {job_id}: Featured media uploaded to WordPress. ID: {featured_media_id}")
                 except Exception as wp_img_err:
@@ -813,6 +822,33 @@ Return ONLY the chosen numeric category ID as an integer. Do not write any other
                 )
                 logger.info(f"Job {job_id}: WordPress post published successfully at: {wp_result['url']}")
 
+            # Save to PublishedBlog to ensure it's available for referencing
+            try:
+                from src.models.blog import PublishedBlog
+                import re
+                clean_content = re.sub('<[^<]+?>', ' ', html_body).strip()
+                async with AsyncSessionLocal() as session:
+                    stmt = select(PublishedBlog).where(PublishedBlog.wp_post_id == str(wp_result["post_id"]))
+                    existing = (await session.execute(stmt)).scalar_one_or_none()
+                    if existing:
+                        existing.title = title
+                        existing.url = wp_result["url"]
+                        existing.description = meta_desc
+                        existing.context = clean_content[:2000]
+                    else:
+                        new_blog = PublishedBlog(
+                            wp_post_id=str(wp_result["post_id"]),
+                            title=title,
+                            url=wp_result["url"],
+                            description=meta_desc,
+                            context=clean_content[:2000]
+                        )
+                        session.add(new_blog)
+                    await session.commit()
+            except Exception as blog_err:
+                logger.error(f"Job {job_id}: Failed to save to PublishedBlog database: {blog_err}")
+
+
         # 2. Post to LinkedIn (delete old post first if republishing)
         if publish_linkedin:
             li = li_client(db_settings=settings_obj)
@@ -860,31 +896,34 @@ Return ONLY the chosen numeric category ID as an integer. Do not write any other
 
         # 3. Post to Brevo Newsletter
         if publish_newsletter:
-            logger.info(f"Job {job_id}: Creating Brevo email newsletter campaign...")
-            brevo = brevo_client(db_settings=settings_obj)
-            list_ids = newsletter_list_ids
-            if not list_ids and settings_obj.brevo_list_id:
-                list_ids = [settings_obj.brevo_list_id]
+            if job.newsletter_campaign_id:
+                logger.info(f"Job {job_id}: Brevo newsletter campaign already sent ({job.newsletter_campaign_id}). Skipping.")
+            else:
+                logger.info(f"Job {job_id}: Creating Brevo email newsletter campaign...")
+                brevo = brevo_client(db_settings=settings_obj)
+                list_ids = newsletter_list_ids
+                if not list_ids and settings_obj.brevo_list_id:
+                    list_ids = [settings_obj.brevo_list_id]
 
-            if not list_ids:
-                raise ValueError("No Brevo List IDs configured.")
+                if not list_ids:
+                    raise ValueError("No Brevo List IDs configured.")
 
-            subject = newsletter_subject
-            preheader = newsletter_preheader
-            html = newsletter_html
+                subject = newsletter_subject
+                preheader = newsletter_preheader
+                html = newsletter_html
 
-            nl_result = await brevo.create_and_send_campaign(
-                name=f"Newsletter - {job_id[:8]} - {datetime.utcnow().strftime('%Y%m%d%H%M')}",
-                subject=subject,
-                preheader=preheader,
-                html_content=html,
-                list_ids=list_ids
-            )
-            await _save(
-                job_id,
-                newsletter_campaign_id=nl_result.get("campaign_id"),
-            )
-            logger.info(f"Job {job_id}: Brevo campaign created and scheduled. Campaign ID: {nl_result.get('campaign_id')}")
+                nl_result = await brevo.create_and_send_campaign(
+                    name=f"Newsletter - {job_id[:8]} - {datetime.utcnow().strftime('%Y%m%d%H%M')}",
+                    subject=subject,
+                    preheader=preheader,
+                    html_content=html,
+                    list_ids=list_ids
+                )
+                await _save(
+                    job_id,
+                    newsletter_campaign_id=nl_result.get("campaign_id"),
+                )
+                logger.info(f"Job {job_id}: Brevo campaign created and scheduled. Campaign ID: {nl_result.get('campaign_id')}")
 
         # 4. Request Indexing on Google Search Console
         if wp_result.get("url") and settings_obj and settings_obj.gsc_service_account_json:

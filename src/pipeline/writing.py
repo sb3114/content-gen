@@ -34,11 +34,12 @@ You are an elite healthtech, elderly care, and healthcare copywriter. Write a hi
 ## Strict Writing Rules
 
 1. **Information Accuracy & Sources**:
-   - **DO NOT INVENT or hallucinate any information, claims, or facts.**
+   - **DO NOT INVENT or hallucinate any information, claims, or facts.** Use Google Search to find and verify recent, accurate information and news. Do not rely on internal memory for facts.
    - Base all medical, technological, and caregiving knowledge strictly on well-known healthcare, elderly care, dementia, and Alzheimer's institutions (e.g., Mayo Clinic, Alzheimer's Association, National Institute on Aging, WHO, NHS, ageuk.org.uk, brightmind.ai, alzheimers.org.uk, dementiaaction.org.uk, dementiashare.com, mind.org.uk)
 2. **Data, Statistics & Verifiable Evidence**:
    - Use real, public statistics, numbers, data, and evidence. **NEVER invent, approximate, or fabricate any numbers or percentages.**
-   - For every statistic, claim, or clinical guideline, you **MUST provide a clickable HTML hyperlink** to the authoritative public resource in question (e.g., `<a href="https://www.alz.org">Alzheimer's Association</a>` or `<a href="https://www.mayoclinic.org">Mayo Clinic</a>`). Ensure these links are formatted correctly as standard HTML `<a>` tags. Do NOT use markdown.
+   - For every statistic, claim, or clinical guideline, you **MUST provide a clickable HTML hyperlink** pointing directly to the specific, verified resource page, blog, or article in question (e.g., `<a href="https://www.alz.org/alzheimers-dementia/facts-figures">Alzheimer's Association Facts & Figures</a>` or `<a href="https://www.nhs.uk/conditions/dementia/about-dementia/">NHS Dementia Guide</a>`). Ensure these links are formatted correctly as standard HTML `<a>` tags. Do NOT use markdown.
+   - **CRITICAL**: Never link to generic homepages of websites (such as `https://www.alz.org`, `https://www.mayoclinic.org`, `https://www.nhs.uk`, `https://www.who.int`, `https://www.nia.nih.gov`, or `https://www.ageuk.org.uk`). You MUST link directly to the specific resource page, article, report, or blog post that contains the actual data, statistic, or guideline. Ensure all URLs are fully accurate, specific, and verified using Google Search grounding. If Google Search grounding does not supply the exact specific resource URL, search for it or write the claim/statistic in a way that allows you to link directly to a specific source page. Do not hallucinate or guess paths.
 
 3. **SEO Foundations**:
    - Maintain excellent semantic keyword density naturally (no keyword stuffing).
@@ -71,7 +72,18 @@ You are an elite healthtech, elderly care, and healthcare copywriter. Write a hi
      - If the target audience is families or general consumers: `<p><a href="https://bondnow.net/order/">Join BondNow</a> with our 2 months money-back guarantee today.</p>`
      - If the target audience is carehomes, homecarers, or professionals: `<p><a href="https://bondnow.net/pilot/">Join our pilot programme</a> to get started today.</p>`
 
-Return the complete HTML body ONLY. Do NOT wrap the code in markdown code blocks like ```html.
+7. **Image Generation Prompt (Nano Banana)**:
+   - At the very end of your response, after the HTML article, you MUST provide a hyper-specific, high-fidelity image generation prompt for our creative engine, Nano Banana.
+   - You must adhere to these STATIC BRAND VISUAL GUARDRAILS:
+     1. ANTI-CLINICAL BIAS: No cold, sterile, or clinical environments. Use warm, lived-in, cozy homes or vibrant community settings with natural light.
+     2. ANTI-SURVEILLANCE: Technology must be depicted as an open window/digital photo frame bringing joy, NOT for tracking/monitoring.
+     3. PRESERVATION OF DIGNITY: Elderly individuals must appear empowered, active, smiling, or content. Not frail or helpless.
+     4. PHOTOGRAPHY ENGINE: Frame as high-end, professional lifestyle photography. Shallow depth of field, sharp focus on faces, natural skin textures, organic lighting.
+   - The prompt must explicitly incorporate the **Core Messaging Pillar**, the **Target Persona** ({target_audience}), and the article's specific context.
+   - If the audience is family/consumer, use Template A style (warm, candid, home setting). If B2B/carehomes, use Template B style (professional, high-end care home lounge).
+   - Wrap this image prompt exactly within `<nano_banana_prompt>` and `</nano_banana_prompt>` tags.
+
+Return the complete HTML body, and then the `<nano_banana_prompt>...</nano_banana_prompt>` tag. Do NOT wrap the code in markdown code blocks like ```html.
 """
 
 
@@ -160,10 +172,19 @@ async def run_writing(
     )
 
     from src.pipeline.llm import call_llm
+    import re
 
     text, usage = await call_llm(
         prompt=prompt,
-        tier="sonnet"
+        tier="sonnet",
+        use_search_grounding=True
     )
     
-    return text, usage
+    nano_banana_prompt = None
+    match = re.search(r"<nano_banana_prompt>(.*?)</nano_banana_prompt>", text, re.DOTALL | re.IGNORECASE)
+    if match:
+        nano_banana_prompt = match.group(1).strip()
+        # Remove it from the text so the HTML remains clean
+        text = re.sub(r"<nano_banana_prompt>.*?</nano_banana_prompt>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+    
+    return text, usage, nano_banana_prompt

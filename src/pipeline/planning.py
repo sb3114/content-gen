@@ -19,6 +19,7 @@ You are an expert SEO strategist and healthcare/elderly care content architect. 
 - **User Ideas/Keywords**: {user_titles}
 - **Keyword Research Data**: {keyword_data}
 - **Competitor Insights**: {scraped_summary}
+{existing_blogs_section}
 
 ## Instructions
 1. **Title & Click-Worthiness**: Create a compelling, professional, and SEO-friendly title under 60 characters.
@@ -26,8 +27,9 @@ You are an expert SEO strategist and healthcare/elderly care content architect. 
 3. **Outline Architecture (SEO & GEO)**:
    - Structure an outline (H2/H3 levels) with clear, intent-driven sections.
    - **GEO / Local Context**: You MUST include a dedicated early section (directly after the introduction / under the first H2) reserved for a "GEO Local & Key Summary Box". This section will contain exactly 4 key-point bullets capturing key highlights from the whole blog that would match high intent-search topics and user queries.
-   - Design the outline to naturally compare modern elderly care technology with top market competitors, specifically **getjubileetv.com** and **komp.family**. Create outline structures that subtly invite positioning **BondNow** as a potential solution for these safety, connection, or caregiving needs while providing accurate and clinical comparison.
+   - {comparison_instruction}
    - Design outline sections that invite authoritative evidence, public data, and guidelines from well-known healthcare, dementia, and Alzheimer's resources (e.g., NHS, alzheimers.org.uk, dementiaaction.org.uk,dementiashare.com, brightmind.ai, mind.org.uk, Alzheimer's Society, Alzheimer's Association, WHO, National Institute on Aging, ageuk.org.uk).
+   - **Internal Linking**: If relevant, design your outline sections to explicitly reference our existing published blogs provided in the Inputs. Suggest adding a natural hyperlink or a "Further Reading" call-out referencing the existing blog title and URL.
 4. **Volume & Target**: Target 1500-2500 words of deeply informative, empathetic, and authoritative content.
 5. **Meta Description**: Provide a high-density, click-worthy 160-character meta description.
 6. **Unique Angles**: Formulate 3-5 unique, authentic writing angles for the writer.
@@ -112,13 +114,58 @@ async def run_planning(
     if serp_format:
         serp_section = f"\nCRITICAL FORMAT REQUIREMENT: Google is currently ranking **{serp_format}** posts for this keyword. Structure the outline to match this format.\n"
 
+    # Fetch existing published blogs for internal linking
+    from src.database import AsyncSessionLocal
+    from src.models.blog import PublishedBlog
+    from sqlmodel import select
+    existing_blogs_text = ""
+    try:
+        async with AsyncSessionLocal() as session:
+            blogs = (await session.execute(select(PublishedBlog))).scalars().all()
+            if blogs:
+                existing_blogs_text = "\n- **Existing Published Blogs (For Internal Linking / Cross-Referencing)**:\n"
+                for b in blogs:
+                    desc = (b.description or "") if b.description else (b.context[:150] + "..." if b.context else "No description available.")
+                    existing_blogs_text += f"  - Title: {b.title}\n    URL: {b.url}\n    Context Summary: {desc}\n"
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to load existing blogs for planning: {e}")
+
+    # Determine if a comparison section is needed based on the serp_format or keywords
+    needs_comparison = False
+    if serp_format:
+        needs_comparison = (serp_format.strip().lower() == "comparison")
+    else:
+        # Fallback check: if the topic/keyword indicates a comparison, enable it
+        check_text = (topic or "").lower() + " " + (focus_keyword or "").lower()
+        if "vs" in check_text or "compare" in check_text or "comparison" in check_text or "alternative" in check_text:
+            needs_comparison = True
+
+    if needs_comparison:
+        comparison_instruction = (
+            "Since the search intent rewards a comparison format, you MUST design the outline to compare "
+            "different solutions, technologies, or providers relevant to this specific topic/context. "
+            "Identify the actual top solutions/providers for this topic (e.g. using search grounding or competitor insights) "
+            "and construct outline sections evaluating their features, pros & cons, and costs/pricing models. "
+            "Subtly and naturally position BondNow as a modern elderly care technology solution only where appropriate, "
+            "maintaining an objective, factual, and clinical tone for the comparison."
+        )
+    else:
+        comparison_instruction = (
+            "Do NOT include a dedicated competitor or product comparison section or table, as this article "
+            "type does not warrant a comparison. Focus instead on providing a high-quality, informative guide/layout "
+            "matching the target format."
+        )
+
     prompt = _PROMPT.format(
         company_context_section=ctx_section,
         topic=topic,
         user_titles="\n".join(f"- {t}" for t in user_titles) or "None",
         keyword_data=json.dumps(keyword_data, indent=2),
         scraped_summary=json.dumps(summaries, indent=2),
+        existing_blogs_section=existing_blogs_text,
         serp_format_section=serp_section,
+        comparison_instruction=comparison_instruction,
     )
 
     if focus_keyword:
@@ -136,7 +183,8 @@ async def run_planning(
     plan_text, usage_sonnet = await call_llm(
         prompt=prompt,
         tier="sonnet",
-        response_schema=ContentPlan
+        response_schema=ContentPlan,
+        use_search_grounding=needs_comparison
     )
     
     plan = ContentPlan(**json.loads(plan_text))

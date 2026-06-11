@@ -20,7 +20,8 @@ async def call_llm(
     system_instruction: str = None,
     response_schema = None,
     use_json: bool = False,
-    db_settings = None
+    db_settings = None,
+    use_search_grounding: bool = False
 ) -> tuple[str, dict]:
     """
     Centralized LLM router function.
@@ -80,7 +81,10 @@ async def call_llm(
 
             cmd = ["claude", "-p", full_prompt, "--model", model_name]
             
-            logger.info(f"Invoking Claude CLI asynchronously: {model_name}")
+            if use_search_grounding:
+                cmd.extend(["--chrome", "--permission-mode", "auto"])
+                
+            logger.info(f"Invoking Claude CLI asynchronously: {model_name} with args: {cmd}")
             import asyncio
             proc = None
             try:
@@ -124,7 +128,8 @@ async def call_llm(
             err_text = stdout + "\n" + stderr
 
             # Catch Rate Limits (429, Too Many Requests, Quota hit)
-            if returncode != 0 or any(kw in err_text.lower() for kw in ["rate limit", "rate-limit", "quota exceeded", "429", "too many requests"]):
+            is_rate_limit = any(kw in err_text.lower() for kw in ["rate limit", "rate-limit", "quota exceeded", "429", "too many requests"])
+            if is_rate_limit:
                 retry_after = 600  # default to 10 minutes
                 
                 # Check for reset timers in output
@@ -152,12 +157,15 @@ async def call_llm(
             text = stdout.strip()
             # Clean JSON formatting wrap if present
             if response_schema or use_json:
-                if text.startswith("```json"):
-                    text = text[7:]
-                elif text.startswith("```"):
-                    text = text[3:]
-                if text.endswith("```"):
-                    text = text[:-3]
+                match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+                if match:
+                    text = match.group(1).strip()
+                else:
+                    # Fallback to finding first { and last }
+                    start_idx = text.find("{")
+                    end_idx = text.rfind("}")
+                    if start_idx != -1 and end_idx != -1:
+                        text = text[start_idx:end_idx+1]
                 text = text.strip()
 
             return text, usage
@@ -235,6 +243,12 @@ async def call_llm(
             config_obj.system_instruction = sys_instr_to_pass
         if cached_content_name:
             config_obj.cached_content = cached_content_name
+
+        if use_search_grounding:
+            if response_schema or use_json:
+                logger.warning("Gemini API does not support Tool use (Search Grounding) with JSON response schema. Disabling Search Grounding for this call.")
+            else:
+                config_obj.tools = [types.Tool(google_search=types.GoogleSearch())]
 
         response = await client.aio.models.generate_content(
             model=gemini_model,
