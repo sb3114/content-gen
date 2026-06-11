@@ -61,9 +61,9 @@
     
     <!-- ── Brand Context ────────────────────────────────────────── -->
     <div class="settings-section">
-      <h2>✦ Brand Voice & Strategy</h2>
+      <h2>✦ Brand Voice &amp; Strategy</h2>
       <p class="text-dim" style="margin-bottom: 1.5rem; font-size: 0.9rem;">
-        This information is summarized into a dense "System Memory" that guides the AI in all planning and writing tasks.
+        This information guides the AI in all planning and writing tasks. The ICP context is preserved verbatim — it is never compressed or diluted.
       </p>
       
       <div class="form-group">
@@ -77,8 +77,8 @@
           <textarea name="marketing_strategy" class="form-input" rows="3">{{ settings.marketing_strategy or '' }}</textarea>
         </div>
         <div class="form-group">
-          <label class="form-label">Ideal Customer Profile (ICP)</label>
-          <textarea name="icp" class="form-input" rows="3">{{ settings.icp or '' }}</textarea>
+          <label class="form-label">Tone of Voice</label>
+          <textarea name="tone_of_voice" class="form-input" rows="3">{{ settings.tone_of_voice or '' }}</textarea>
         </div>
       </div>
 
@@ -87,38 +87,24 @@
           <label class="form-label">Core Pillars</label>
           <textarea name="core_pillars" class="form-input" rows="3">{{ settings.core_pillars or '' }}</textarea>
         </div>
-        <div class="form-group">
-          <label class="form-label">Tone of Voice</label>
-          <textarea name="tone_of_voice" class="form-input" rows="3">{{ settings.tone_of_voice or '' }}</textarea>
-        </div>
       </div>
 
-      <div class="grid-2">
-        <div class="form-group">
-          <label class="form-label">Target Audience</label>
-          <textarea name="target_audience" class="form-input" rows="2">{{ settings.target_audience or settings.audiences or '' }}</textarea>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Personas</label>
-          <textarea name="personas" class="form-input" rows="2">{{ settings.personas or '' }}</textarea>
-        </div>
-      </div>
-
-      <div class="grid-2">
-        <div class="form-group">
-          <label class="form-label">Pain Points</label>
-          <textarea name="pain_points" class="form-input" rows="2">{{ settings.pain_points or '' }}</textarea>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Messaging Framework</label>
-          <textarea name="messaging_framework" class="form-input" rows="2">{{ settings.messaging_framework or '' }}</textarea>
-        </div>
+      <div class="form-group" style="margin-top: 1.5rem;">
+        <label class="form-label" style="display:flex; align-items:center; gap:0.5rem;">
+          <span>🎯 ICP &amp; Audience Strategy</span>
+          <span class="status-tag status-tag--ok" style="font-size:0.7rem;">Preserved Verbatim</span>
+        </label>
+        <p class="form-hint" style="margin-bottom: 0.75rem;">
+          Paste your complete ICP information here — personas, pain points, goals, decision criteria, messaging angles, demographic details, etc.
+          Write it as richly as you like. The AI reads this in full and never compresses it.
+        </p>
+        <textarea name="icp_context" class="form-input" rows="12" placeholder="Example:&#10;&#10;Persona 1 — CTO at Series B SaaS company&#10;- Pain points: legacy infrastructure, team velocity, compliance pressure&#10;- Goals: reduce deployment time, unify toolchain, pass SOC2&#10;- Content they value: ROI case studies, architecture deep-dives, peer benchmarks&#10;&#10;Persona 2 — Head of Engineering&#10;...">{{ settings.icp_context or settings.icp or '' }}</textarea>
       </div>
 
       {% if settings.summarized_context %}
-      <details class="detail-panel" style="margin-top: 1rem;">
-        <summary>View Summarized Context (AI Memory)</summary>
-        <div class="code-pre" style="margin-top: 0.5rem; max-height: 150px;">{{ settings.summarized_context }}</div>
+      <details class="detail-panel" style="margin-top: 1.5rem;">
+        <summary>View AI Memory (Brand Strategy Summary)</summary>
+        <div class="code-pre" style="margin-top: 0.5rem; max-height: 250px; white-space: pre-wrap;">{{ settings.summarized_context }}</div>
       </details>
       {% endif %}
     </div>
@@ -186,9 +172,14 @@
     <div class="settings-section" style="margin-top: 2rem;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
         <h2 style="margin:0;">🌐 WordPress Connection</h2>
-        <button type="button" id="btn-test-wp" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
-          <span id="wp-btn-text">Test Connection</span>
-        </button>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+          <button type="button" id="btn-sync-wp" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span id="wp-sync-btn-text">Sync Blogs</span>
+          </button>
+          <button type="button" id="btn-test-wp" class="btn btn--ghost" style="font-size:0.8rem; height: 32px; padding: 0 1rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span id="wp-btn-text">Test Connection</span>
+          </button>
+        </div>
       </div>
       <div class="grid-2">
         <div class="form-group">
@@ -454,6 +445,50 @@ document.getElementById('btn-test-wp').addEventListener('click', async () => {
     `;
   } finally {
     btnText.textContent = 'Test Connection';
+  }
+});
+
+document.getElementById('btn-sync-wp').addEventListener('click', async () => {
+  const btnText = document.getElementById('wp-sync-btn-text');
+  const statusBox = document.getElementById('wp-status');
+  
+  if (!statusBox) return;
+  
+  btnText.innerHTML = '<span class="spinner"></span>';
+  statusBox.style.display = 'block';
+  statusBox.style.backgroundColor = 'rgba(0,0,0,0.2)';
+  statusBox.style.color = 'var(--text-dim)';
+  statusBox.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-dim); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:8px; vertical-align:middle;"></span>Syncing published blogs from WordPress...';
+  
+  try {
+    const response = await fetch('/auth/wordpress/sync', {method: 'POST'});
+    const data = await response.json();
+    
+    if (data.ok) {
+      statusBox.style.color = '#34d399';
+      statusBox.style.borderColor = 'rgba(52,211,153,0.3)';
+      statusBox.style.backgroundColor = 'rgba(52,211,153,0.05)';
+      statusBox.innerHTML = `
+        <div style="font-weight:600; margin-bottom:0.25rem;">✅ Sync Successful!</div>
+        <div style="font-size:0.8rem; opacity:0.9;">
+          <strong>Total Posts:</strong> ${data.total}<br>
+          <strong>New Added:</strong> ${data.new}<br>
+          <strong>Updated:</strong> ${data.updated}
+        </div>
+      `;
+    } else {
+      throw new Error(data.error || 'Failed to sync');
+    }
+  } catch (error) {
+    statusBox.style.color = '#ef4444';
+    statusBox.style.borderColor = 'rgba(239,68,68,0.3)';
+    statusBox.style.backgroundColor = 'rgba(239,68,68,0.05)';
+    statusBox.innerHTML = `
+      <div style="font-weight:600; margin-bottom:0.25rem;">❌ Sync Failed</div>
+      <div style="font-size:0.8rem; opacity:0.9;">${error.message}</div>
+    `;
+  } finally {
+    btnText.textContent = 'Sync Blogs';
   }
 });
 

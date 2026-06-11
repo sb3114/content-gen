@@ -8,6 +8,7 @@ from src.config import settings
 from src.models.settings import CompanySettings
 from src.models.job import ArticleJob, ClusterPlan  # noqa: F401
 from src.models.chat import AgentConversation, AgentMessage  # noqa: F401
+from src.models.blog import PublishedBlog  # noqa: F401
 
 engine = create_async_engine(
     settings.database_url,
@@ -52,6 +53,12 @@ async def init_db():
         await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS secondary_keywords JSON;"))
         await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS evaluation_metrics JSON;"))
         await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS cluster_plan_id VARCHAR;"))
+
+        # Newsletter specific columns
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS is_newsletter BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS recurring_interval VARCHAR;"))
+        await conn.execute(text("ALTER TABLE article_jobs ADD COLUMN IF NOT EXISTS recurring_day VARCHAR;"))
 
         # Stateful multiagent cluster_plans columns (new release)
         await conn.execute(text("ALTER TABLE cluster_plans ADD COLUMN IF NOT EXISTS status VARCHAR NOT NULL DEFAULT 'planning';"))

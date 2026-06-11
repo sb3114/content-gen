@@ -448,6 +448,7 @@ def tool_approve_and_schedule_latest_plan(publish_targets: List[str] = ["wordpre
 
                 # Mark plan as approved
                 plan.approved = True
+                plan.status = "approved"
                 session.add(plan)
                 await session.commit()
 
@@ -529,7 +530,7 @@ You are the Content Engine Agent. You have access to the following tools:
    Args: job_id (string).
 5. tool_generate_90_day_plan: Generates a Hub & Spoke rolling strategy.
    Args: seed_topic (string), num_pillars (int, optional), spokes_per_pillar (int, optional),
-   audience_split (array of objects, optional) — e.g. [{"persona": "CTOs", "percentage": 40}, {"persona": "Developers", "percentage": 60}].
+   audience_split (array of objects, optional) — e.g. [{{"persona": "CTOs", "percentage": 40}}, {{"persona": "Developers", "percentage": 60}}].
    Percentages must sum to 100. Each article task will be tagged with a target_persona field.
 6. tool_approve_and_schedule_latest_plan: Approves the latest plan and schedules all generated child jobs.
    Args: publish_targets (array of strings, optional).
@@ -538,6 +539,7 @@ You are the Content Engine Agent. You have access to the following tools:
 9. tool_resume_cluster_plan: Resumes a paused cluster plan. Args: plan_id (string).
 10. tool_delete_cluster_plan: Deletes a cluster plan completely. Args: plan_id (string).
 11. tool_modify_cluster_plan: Modifies a cluster plan properties. Args: plan_id (string), modifications_json (string).
+12. tool_reschedule_cluster_plan: Reschedules all jobs in a cluster plan. Args: plan_id (string), start_date (string, YYYY-MM-DD), end_date (string, YYYY-MM-DD, optional).
 
 ## Conversation History & Latest Messages
 {history_text}
@@ -659,14 +661,8 @@ def get_agent_chat(history: List[dict] = []):
         sys_instr += f"- **Core Pillars / Focus Topics**: {brand_ctx['core_pillars']}\n"
     if brand_ctx.get("audiences"):
         sys_instr += f"- **Target Audiences**: {brand_ctx['audiences']}\n"
-    if brand_ctx.get("target_audience"):
-        sys_instr += f"- **Target Audience**: {brand_ctx['target_audience']}\n"
-    if brand_ctx.get("personas"):
-        sys_instr += f"- **Personas**: {brand_ctx['personas']}\n"
-    if brand_ctx.get("pain_points"):
-        sys_instr += f"- **Pain Points**: {brand_ctx['pain_points']}\n"
-    if brand_ctx.get("messaging_framework"):
-        sys_instr += f"- **Messaging Framework**: {brand_ctx['messaging_framework']}\n"
+    if brand_ctx.get("icp_context"):
+        sys_instr += f"\n**ICP & Persona Strategy** (full context):\n{brand_ctx['icp_context']}\n"
 
     sys_instr += (
         "\nUse this brand context to inform the style, voice, vocabulary, and topic generation. "
@@ -847,6 +843,19 @@ def get_agent_chat(history: List[dict] = []):
                                 },
                                 required=["plan_id", "modifications_json"]
                             )
+                        ),
+                        types.FunctionDeclaration(
+                            name="tool_reschedule_cluster_plan",
+                            description="Reschedules all jobs in a cluster plan to be evenly spaced.",
+                            parameters=types.Schema(
+                                type="OBJECT",
+                                properties={
+                                    "plan_id": types.Schema(type="STRING", description="The ID of the plan to reschedule."),
+                                    "start_date": types.Schema(type="STRING", description="Start date in YYYY-MM-DD format."),
+                                    "end_date": types.Schema(type="STRING", description="Optional end date in YYYY-MM-DD format. If provided, jobs are evenly spaced between start and end.")
+                                },
+                                required=["plan_id", "start_date"]
+                            )
                         )
                     ]
                 )
@@ -986,3 +995,59 @@ def tool_modify_cluster_plan(plan_id: str, modifications_json: str) -> str:
             await engine.dispose()
     return asyncio.run(_run())
 
+
+
+def tool_reschedule_cluster_plan(plan_id: str, start_date: str, end_date: str = None) -> str:
+    """Reschedules all jobs in a cluster plan."""
+    engine, LocalSession = _make_agent_session()
+    import asyncio
+    from datetime import datetime, timedelta, time
+    async def _run():
+        try:
+            async with LocalSession() as session:
+                p = await session.get(ClusterPlan, plan_id)
+                if not p: return json.dumps({"error": f"Plan {plan_id} not found."})
+                
+                jobs_query = select(ArticleJob).where(ArticleJob.cluster_plan_id == plan_id).order_by(ArticleJob.scheduled_at.asc().nulls_first())
+                jobs = (await session.exec(jobs_query)).all()
+                if not jobs: return json.dumps({"error": f"No jobs found for plan {plan_id}."})
+                
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                start_dt = datetime.combine(start_dt.date(), time(9, 0))
+                
+                if end_date:
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                    end_dt = datetime.combine(end_dt.date(), time(9, 0))
+                    if len(jobs) > 1:
+                        total_seconds = (end_dt - start_dt).total_seconds()
+                        interval_seconds = total_seconds / (len(jobs) - 1)
+                        interval = timedelta(seconds=interval_seconds)
+                    else:
+                        interval = timedelta(days=1)
+                else:
+                    interval = timedelta(days=1 if len(jobs) > 45 else 2)
+                    
+                current_dt = start_dt
+                for job in jobs:
+                    job.scheduled_at = current_dt
+                    session.add(job)
+                    current_dt += interval
+                
+                if p.tasks:
+                    from sqlalchemy.orm.attributes import flag_modified
+                    tasks = list(p.tasks)
+                    current_dt = start_dt
+                    for t in tasks:
+                        t["scheduled_at"] = current_dt.isoformat()
+                        current_dt += interval
+                    p.tasks = tasks
+                    flag_modified(p, "tasks")
+                    session.add(p)
+                
+                await session.commit()
+                return json.dumps({"status": "success", "message": f"Successfully rescheduled {len(jobs)} jobs for plan {plan_id} starting from {start_date}."})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            await engine.dispose()
+    return asyncio.run(_run())

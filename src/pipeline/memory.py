@@ -121,19 +121,104 @@ You are an expert style librarian. Merge these newly discovered style rules into
     except Exception as e:
         logger.error(f"Failed to merge and save rules: {e}")
 
+IMAGE_MEMORY_PATH = "data/agent_memory/image_prompt_memory.md"
+
+def load_image_memory() -> str:
+    """Reads the persistent image prompt memory file if it exists."""
+    os.makedirs(os.path.dirname(IMAGE_MEMORY_PATH), exist_ok=True)
+    if os.path.exists(IMAGE_MEMORY_PATH):
+        try:
+            with open(IMAGE_MEMORY_PATH, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception as e:
+            logger.error(f"Failed to read image prompt memory: {e}")
+    return ""
+
+async def merge_and_save_image_rules(new_rules_text: str):
+    """Deduplicates and merges new image prompt rules into existing memory."""
+    current_memory = load_image_memory()
+    prompt = f"""\
+You are an expert AI Image Generation constraint manager. Merge these newly discovered guardrails into our existing image prompt guidelines.
+
+## Existing Guidelines
+{current_memory or 'None yet.'}
+
+## New Discovered Rules
+{new_rules_text}
+
+## Instructions
+- Combine overlapping rules.
+- Keep the list highly readable and actionable, focused purely on prompt engineering constraints for image generation models.
+- Limit to a maximum of 15 bulleted rules.
+- Return ONLY the merged, clean bulleted list.
+"""
+    try:
+        merged_text, _ = await call_llm(prompt=prompt, tier="haiku")
+        merged_text = merged_text.strip()
+        if merged_text:
+            os.makedirs(os.path.dirname(IMAGE_MEMORY_PATH), exist_ok=True)
+            with open(IMAGE_MEMORY_PATH, "w", encoding="utf-8") as f:
+                f.write(merged_text)
+            logger.info("Successfully updated persistent image prompt memory.")
+    except Exception as e:
+        logger.error(f"Failed to merge and save image rules: {e}")
+
+async def record_image_prompt_feedback(original_prompt: str, edited_prompt: str):
+    """
+    Compares the original AI-generated image prompt with the user's manual edits
+    and extracts new safety/style constraints.
+    """
+    if not original_prompt or not edited_prompt:
+        return
+    if original_prompt.strip() == edited_prompt.strip():
+        return
+
+    prompt = f"""\
+You are an AI Safety and Image Prompt auditor. The user has manually edited an image generation prompt to bypass safety filters or improve style.
+Compare the original prompt with the user's final edited prompt.
+
+## Original AI Prompt
+```text
+{original_prompt}
+```
+
+## User's Edited Prompt
+```text
+{edited_prompt}
+```
+
+## Task
+Identify why the user made these changes (e.g. removing specific brand names, removing specific ages or 'toddler' which triggers safety blocks, changing lighting/style).
+Extract 1-3 evergreen negative/positive constraints that our image prompt generator should follow in the future.
+Be specific and actionable (e.g. 'Never mention specific brands like Amazon Echo', 'Avoid asking for photorealistic toddlers to prevent safety blocks').
+
+Return ONLY a bulleted list of 1-3 concise rules. Do not write introductory text.
+"""
+    try:
+        rules, _ = await call_llm(prompt=prompt, tier="haiku")
+        rules = rules.strip()
+        if rules and "-" in rules:
+            await merge_and_save_image_rules(rules)
+    except Exception as e:
+        logger.error(f"Failed to record image prompt feedback: {e}")
 
 BRAND_MEMORY_PATH = "data/agent_memory/brand_context_memory.json"
 
 def save_brand_context_memory(settings_obj) -> dict:
-    """Caches the brand context and tone of voice settings in the persistent memory file."""
+    """Caches the brand context settings in the persistent memory file."""
     import json
     os.makedirs(os.path.dirname(BRAND_MEMORY_PATH), exist_ok=True)
+
+    # Prefer icp_context; fall back to legacy icp if unset
+    icp_ctx = getattr(settings_obj, "icp_context", "") or ""
+    if not icp_ctx.strip():
+        icp_ctx = getattr(settings_obj, "icp", "") or ""
+
     data = {
         "marketing_strategy": getattr(settings_obj, "marketing_strategy", "") or "",
-        "icp": getattr(settings_obj, "icp", "") or "",
+        "icp_context": icp_ctx,
         "core_pillars": getattr(settings_obj, "core_pillars", "") or "",
         "tone_of_voice": getattr(settings_obj, "tone_of_voice", "") or "",
-        "audiences": getattr(settings_obj, "audiences", "") or "",
         "company_description": getattr(settings_obj, "company_description", "") or "",
         "summarized_context": getattr(settings_obj, "summarized_context", "") or "",
     }

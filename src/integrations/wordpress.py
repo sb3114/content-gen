@@ -108,10 +108,56 @@ class WordPressClient:
                 for c in resp.json()
             ]
 
+    async def get_all_posts(self) -> list[dict]:
+        """Fetch all published posts from WordPress."""
+        all_posts = []
+        page = 1
+        async with httpx.AsyncClient(timeout=30) as client:
+            while True:
+                resp = await client.get(
+                    f"{self.base}/posts",
+                    headers=self.headers,
+                    params={"per_page": 100, "page": page, "status": "publish"},
+                )
+                if resp.status_code == 400:
+                    break
+                resp.raise_for_status()
+                posts = resp.json()
+                if not posts:
+                    break
+                
+                for p in posts:
+                    # Strip basic HTML for context/description
+                    import re
+                    raw_content = p.get("content", {}).get("rendered", "")
+                    clean_content = re.sub('<[^<]+?>', ' ', raw_content).strip()
+                    
+                    raw_excerpt = p.get("excerpt", {}).get("rendered", "")
+                    clean_excerpt = re.sub('<[^<]+?>', ' ', raw_excerpt).strip()
+                    
+                    raw_title = p.get("title", {}).get("rendered", "")
+                    clean_title = re.sub('<[^<]+?>', '', raw_title).replace('&amp;', '&').replace('&#8211;', '-')
+                    
+                    all_posts.append({
+                        "wp_post_id": str(p["id"]),
+                        "title": clean_title,
+                        "url": p.get("link", ""),
+                        "description": clean_excerpt,
+                        "context": clean_content[:2000]  # Store up to 2000 chars of context
+                    })
+                
+                # Check headers for total pages
+                total_pages = int(resp.headers.get("x-wp-totalpages", 1))
+                if page >= total_pages:
+                    break
+                page += 1
+                
+        return all_posts
     async def upload_media(
         self,
         filename: str,
         media_bytes: bytes,
+        alt_text: str = "",
         mime_type: str = "image/jpeg"
     ) -> dict:
         """
@@ -130,7 +176,35 @@ class WordPressClient:
                 headers=upload_headers,
             )
             resp.raise_for_status()
-            return resp.json()
+            
+            # WP sometimes outputs PHP warnings before the JSON.
+            text = resp.text
+            json_start = text.find('{')
+            if json_start != -1:
+                import json
+                media = json.loads(text[json_start:])
+            else:
+                media = resp.json()
+            
+            if alt_text:
+                media_id = media.get("id")
+                try:
+                    update_resp = await client.post(
+                        f"{self.base}/media/{media_id}",
+                        json={"alt_text": alt_text, "title": alt_text},
+                        headers=self.headers,
+                    )
+                    update_resp.raise_for_status()
+                    update_text = update_resp.text
+                    u_start = update_text.find('{')
+                    if u_start != -1:
+                        media = json.loads(update_text[u_start:])
+                    else:
+                        media = update_resp.json()
+                except Exception:
+                    pass
+                    
+            return media
 
     async def create_post(
         self,
@@ -198,6 +272,7 @@ class WordPressClient:
         payload: dict = {
             "title": title,
             "content": full_content,
+            "excerpt": meta_description,
             "status": "publish",
             "slug": slug,
             "tags": tag_ids,
@@ -288,6 +363,7 @@ class WordPressClient:
         payload: dict = {
             "title": title,
             "content": full_content,
+            "excerpt": meta_description,
             "status": "publish",
             "slug": slug,
             "tags": tag_ids,

@@ -46,6 +46,49 @@ async def wp_validate() -> dict:
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
+@router.post("/wordpress/sync")
+async def wp_sync_blogs() -> dict:
+    """
+    Retrieves all blogs from WordPress and saves/updates them in the database.
+    """
+    from src.database import AsyncSessionLocal
+    from src.models.settings import CompanySettings
+    from src.models.blog import PublishedBlog
+    from sqlmodel import select
+    
+    try:
+        async with AsyncSessionLocal() as session:
+            db_settings = await session.get(CompanySettings, 1)
+            
+            client = wp_integration.get_client(db_settings=db_settings)
+            posts = await client.get_all_posts()
+            
+            # Fetch existing to avoid duplicates, update if exists
+            existing_blogs = await session.execute(select(PublishedBlog))
+            existing_dict = {b.wp_post_id: b for b in existing_blogs.scalars().all()}
+            
+            new_count = 0
+            update_count = 0
+            
+            for p in posts:
+                if p["wp_post_id"] in existing_dict:
+                    blog = existing_dict[p["wp_post_id"]]
+                    blog.title = p["title"]
+                    blog.url = p["url"]
+                    blog.description = p["description"]
+                    blog.context = p["context"]
+                    update_count += 1
+                else:
+                    blog = PublishedBlog(**p)
+                    session.add(blog)
+                    new_count += 1
+            
+            await session.commit()
+            return {"ok": True, "new": new_count, "updated": update_count, "total": len(posts)}
+    except Exception as exc:
+        logger.error(f"Failed to sync WordPress blogs: {exc}")
+        return {"ok": False, "error": str(exc)}
+
 
 # ── Claude CLI status ────────────────────────────────────────────────────────
 
@@ -272,7 +315,7 @@ async def gsc_validate() -> dict:
             return {"ok": False, "error": "Google Search Console service account JSON is not configured."}
         
         client = GoogleSearchConsoleClient(db_settings.gsc_service_account_json)
-        return await client.validate_connection()
+        return await client.validate_connection(url=db_settings.wp_site_url)
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 

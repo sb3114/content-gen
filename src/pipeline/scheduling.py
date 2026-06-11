@@ -112,6 +112,7 @@ async def schedule_writing_jobs(
             primary_keyword=primary_keyword,
             secondary_keywords=secondary_keywords,
             evaluation_metrics=evaluation_metrics,
+            target_persona=task.get("target_persona"),
             scheduled_at=last_dt,
             status=JobStatus.queued,
             queue_position=queue_pos,

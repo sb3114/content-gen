@@ -39,49 +39,62 @@ class BrevoClient:
         list_ids: list[int]
     ) -> dict:
         """
-        Create an email campaign using template ID 57 and send it immediately.
+        Send a transactional email using Brevo SMTP API to the contacts in the given lists.
+        Since /smtp/email requires a 'to' field or 'messageVersions', we fetch contacts first.
         """
         async with httpx.AsyncClient(timeout=30) as client:
-            # Try to get verified sender ID first
-            sender_id = await self._get_sender_id(client)
+            emails = set()
+            # Fetch contacts for all requested lists
+            for lst_id in list_ids:
+                success = False
+                for attempt in range(3):
+                    try:
+                        c_resp = await client.get(f"{BREVO_API}/contacts/lists/{lst_id}/contacts", headers=self.headers)
+                        if c_resp.status_code == 200:
+                            contacts = c_resp.json().get("contacts", [])
+                            for c in contacts:
+                                if c.get("email") and not c.get("emailBlacklisted"):
+                                    emails.add(c["email"])
+                        success = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"Attempt {attempt + 1}: Failed to fetch contacts for list {lst_id}: {e}")
+                        import asyncio
+                        await asyncio.sleep(2)
+                
+                if not success:
+                    logger.error(f"Completely failed to fetch contacts for list {lst_id} after 3 attempts.")
             
-            # Apply manual escaping for double quotes and line breaks as requested
-            escaped_html = html_content.replace('"', '\\"').replace('\n', '\\n')
+            if not emails:
+                logger.error("No valid contacts found in the selected lists.")
+                raise ValueError("No valid contacts found in the selected lists to send to.")
             
-            # 1. Create the campaign using template
+            # Create messageVersions for all recipients
+            versions = [{"to": [{"email": e}]} for e in emails]
+            
             payload = {
-                "name": name,
-                "templateId": 57,
-                "subject": subject,
+                "templateId": 56,
+                "messageVersions": versions,
                 "params": {
-                    "subject": subject,
-                    "preview": preheader,
-                    "body": escaped_html
-                },
-                "recipients": {"listIds": list_ids}
+                    "email_body": html_content,
+                    "body": html_content
+                }
             }
             
-            if sender_id:
-                payload["sender"] = {"id": sender_id}
-            
-            create_resp = await client.post(
-                f"{BREVO_API}/emailCampaigns",
+            resp = await client.post(
+                f"{BREVO_API}/smtp/email",
                 headers=self.headers,
                 json=payload
             )
-            if create_resp.status_code >= 400:
-                logger.error(f"Brevo API Error: {create_resp.text}")
-            create_resp.raise_for_status()
-            campaign_id = create_resp.json()["id"]
-
-            # 2. Send the campaign immediately
-            send_resp = await client.post(
-                f"{BREVO_API}/emailCampaigns/{campaign_id}/sendNow",
-                headers=self.headers
-            )
-            send_resp.raise_for_status()
+            if resp.status_code >= 400:
+                logger.error(f"Brevo API Error: {resp.text}")
+            resp.raise_for_status()
             
-            return {"campaign_id": str(campaign_id)}
+            # The SMTP API usually returns messageId or messageIds
+            resp_data = resp.json()
+            message_ids = resp_data.get("messageIds", [])
+            message_id = message_ids[0] if message_ids else resp_data.get("messageId", "sent")
+            return {"campaign_id": message_id}
 
     async def get_lists(self) -> list[dict]:
         """Fetch all contact lists from Brevo."""

@@ -138,6 +138,18 @@
         {% else %}Awaiting generation...{% endif %}
       </span>
     </div>
+    {% if plan.audience_split %}
+    <div class="meta-item">
+      <span class="meta-label">Audience Split</span>
+      <span class="meta-value" style="display: flex; gap: 0.4rem; align-items: center; margin-top: 0.15rem; flex-wrap: wrap;">
+        {% for split in plan.audience_split %}
+        <span style="font-size: 0.75rem; background: var(--surface-2); border: 1px solid var(--border); padding: 0.15rem 0.5rem; border-radius: 4px; color: var(--text-muted);">
+          {{ split.percentage }}% {{ split.persona }}
+        </span>
+        {% endfor %}
+      </span>
+    </div>
+    {% endif %}
     <div class="meta-item">
       <span class="meta-label">Outlets</span>
       <span class="meta-value" style="display: flex; gap: 0.4rem; align-items: center; margin-top: 0.15rem;">
@@ -198,6 +210,11 @@
                 <span class="spoke-badge">Supporting (Spoke)</span>
                 {% endif %}
                 <span style="font-size: 0.8rem; color: var(--text-dim);">Target: {{ task.primary_keyword }}</span>
+                {% if task.target_persona %}
+                <span style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); padding: 0.15rem 0.4rem; border-radius: 4px; color: var(--success); margin-left: 0.5rem; text-transform: uppercase;">
+                  👤 {{ task.target_persona }}
+                </span>
+                {% endif %}
               </div>
 
               <h4 style="font-size: 1rem; font-weight: 600; line-height: 1.4; color: var(--text);">{{ task.topic }}</h4>
@@ -227,7 +244,7 @@
                 <label
                   style="font-size: 0.7rem; color: var(--text-dim); text-align: right; text-transform: uppercase;">Publish
                   Date &amp; Time</label>
-                <input type="datetime-local" class="form-input" value="{{ task.scheduled_at[:16] }}" {% if
+                <input type="datetime-local" class="form-input" value="{{ task.get('scheduled_at', '')[:16] if task.get('scheduled_at') else '' }}" {% if
                   plan.status in ['approved', 'paused'] %}disabled{% endif %}
                   style="padding: 0.35rem 0.65rem; font-size: 0.8rem; width: 200px; background: var(--bg-input);"
                   hx-post="/cluster-plans/{{ plan.id }}/update-task-schedule" hx-trigger="change"
@@ -349,7 +366,14 @@
             {{ job.reviewed_title or (job.content_plan.chosen_title if job.content_plan else job.topic) }}
           </div>
           {% if job.core_messaging_pillar %}
-          <div style="font-size: 0.72rem; color: var(--accent-light); margin-top: 0.15rem;">🎯 {{ job.core_messaging_pillar }}</div>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.15rem; align-items: center;">
+            <div style="font-size: 0.72rem; color: var(--accent-light);">🎯 {{ job.core_messaging_pillar }}</div>
+            {% if job.target_persona %}
+            <div style="font-size: 0.7rem; color: var(--success); background: rgba(16,185,129,0.05); padding: 0.1rem 0.35rem; border: 1px solid rgba(16,185,129,0.2); border-radius: 4px;">
+              👤 {{ job.target_persona }}
+            </div>
+            {% endif %}
+          </div>
           {% endif %}
         </div>
       </div>

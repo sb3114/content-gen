@@ -42,14 +42,9 @@ async def save_settings(
     request: Request,
     session: Session,
     marketing_strategy: str = Form(None),
-    icp: str = Form(None),
+    icp_context: str = Form(None),
     core_pillars: str = Form(None),
     tone_of_voice: str = Form(None),
-    audiences: str = Form(None),
-    target_audience: str = Form(None),
-    personas: str = Form(None),
-    pain_points: str = Form(None),
-    messaging_framework: str = Form(None),
     company_description: str = Form(None),
     llm_provider: str = Form("gemini"),
     claude_setup_token: str = Form(None),
@@ -90,26 +85,16 @@ async def save_settings(
     # Check if brand context changed to save tokens on summarization
     brand_changed = (
         settings_obj.marketing_strategy != marketing_strategy or
-        settings_obj.icp != icp or
+        settings_obj.icp_context != icp_context or
         settings_obj.core_pillars != core_pillars or
         settings_obj.tone_of_voice != tone_of_voice or
-        settings_obj.audiences != audiences or
-        settings_obj.target_audience != target_audience or
-        settings_obj.personas != personas or
-        settings_obj.pain_points != pain_points or
-        settings_obj.messaging_framework != messaging_framework or
         settings_obj.company_description != company_description
     )
 
     settings_obj.marketing_strategy = marketing_strategy
-    settings_obj.icp = icp
+    settings_obj.icp_context = icp_context
     settings_obj.core_pillars = core_pillars
     settings_obj.tone_of_voice = tone_of_voice
-    settings_obj.audiences = audiences
-    settings_obj.target_audience = target_audience
-    settings_obj.personas = personas
-    settings_obj.pain_points = pain_points
-    settings_obj.messaging_framework = messaging_framework
     settings_obj.company_description = company_description
 
     # Update LLM Settings
@@ -248,12 +233,16 @@ async def create_job(
     newsletter_list_ids: list[int] = Form(default=[]),
     scheduled_at_str: str = Form(None, alias="scheduled_at"),
     auto_approve: bool = Form(False),
+    is_newsletter: bool = Form(False),
+    is_recurring: bool = Form(False),
+    recurring_interval: Optional[str] = Form(None),
+    recurring_day: Optional[str] = Form(None),
 ):
     def parse_lines(text: str) -> list[str]:
         return [l.strip() for l in text.strip().splitlines() if l.strip()]
 
     # Validation
-    is_summary_only = (len(publish_targets) == 1 and publish_targets[0] == "newsletter" and newsletter_type == "summary")
+    is_summary_only = is_newsletter
 
     if not topic:
         if is_summary_only:
@@ -277,6 +266,10 @@ async def create_job(
     )).all())
     queue_pos = queued_count + 1
 
+    # Mandate a manual "Approval" gate for newsletters
+    if is_newsletter:
+        auto_approve = False
+
     job = ArticleJob(
         topic=topic,
         user_titles=parse_lines(user_titles),
@@ -285,8 +278,11 @@ async def create_job(
         personalization_snippets=personalization_snippets.strip() if personalization_snippets else None,
         publish_wordpress="wordpress" in publish_targets,
         publish_linkedin="linkedin" in publish_targets,
-        publish_newsletter="newsletter" in publish_targets,
-        newsletter_type=newsletter_type,
+        publish_newsletter="newsletter" in publish_targets or is_newsletter,
+        is_newsletter=is_newsletter,
+        is_recurring=is_recurring,
+        recurring_interval=recurring_interval,
+        recurring_day=recurring_day,
         newsletter_timeframe=newsletter_timeframe,
         newsletter_list_ids=newsletter_list_ids,
         scheduled_at=schedule_dt,
@@ -344,12 +340,13 @@ async def approve_job(
     background_tasks: BackgroundTasks,
     session: Session,
     job_id: str,
-    reviewed_title: str = Form(...),
-    reviewed_markdown: str = Form(...),
+    reviewed_title: str = Form(None),
+    reviewed_markdown: str = Form(None),
     reviewed_linkedin: str = Form(None),
     reviewed_newsletter_subject: str = Form(None),
     reviewed_newsletter_html: str = Form(None),
     selected_image: str = Form(None),
+    newsletter_list_ids: list[int] = Form(default=[]),
 ):
     job = await session.get(ArticleJob, job_id)
     if not job:
@@ -373,6 +370,7 @@ async def approve_job(
     if reviewed_newsletter_subject: job.reviewed_newsletter_subject = reviewed_newsletter_subject
     if reviewed_newsletter_html: job.reviewed_newsletter_html = reviewed_newsletter_html
     if selected_image: job.selected_image = selected_image
+    job.newsletter_list_ids = newsletter_list_ids
     if job.scheduled_at and job.scheduled_at > datetime.utcnow():
         job.status = JobStatus.scheduled
     else:
@@ -505,12 +503,24 @@ async def retry_job(
     job = await session.get(ArticleJob, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    job.status = JobStatus.queued
-    job.error_message = None
-    job.error_step = None
-    job.updated_at = datetime.utcnow()
-    session.add(job)
-    await session.commit()
+        
+    if job.error_step == "publishing":
+        job.status = JobStatus.approved
+        job.error_message = None
+        job.error_step = None
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        await session.commit()
+        from src.pipeline.orchestrator import publish_job
+        background_tasks.add_task(publish_job, job.id)
+    else:
+        job.status = JobStatus.queued
+        job.error_message = None
+        job.error_step = None
+        job.updated_at = datetime.utcnow()
+        session.add(job)
+        await session.commit()
+        
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
@@ -547,7 +557,7 @@ async def re_review_job(session: Session, job_id: str):
 async def regenerate_job_images(
     session: Session,
     job_id: str,
-    feedback: Optional[str] = Form(None)
+    nano_banana_prompt: Optional[str] = Form(None)
 ):
     job = await session.get(ArticleJob, job_id)
     if not job:
@@ -557,8 +567,21 @@ async def regenerate_job_images(
     from src.models.settings import CompanySettings
     settings_obj = await session.get(CompanySettings, 1)
     
+    # Save the updated prompt and learn from changes
+    if nano_banana_prompt:
+        original_prompt = job.nano_banana_prompt or ""
+        if original_prompt.strip() != nano_banana_prompt.strip():
+            from src.pipeline.memory import record_image_prompt_feedback
+            import asyncio
+            # Fire and forget the learning process
+            asyncio.create_task(record_image_prompt_feedback(original_prompt, nano_banana_prompt))
+            
+        job.nano_banana_prompt = nano_banana_prompt
+        session.add(job)
+        await session.commit()
+    
     try:
-        images = await generate_images_for_job(job, db_settings=settings_obj, feedback=feedback)
+        images = await generate_images_for_job(job, db_settings=settings_obj, prompt_override=nano_banana_prompt)
         job.generated_images = images
         if images:
             job.selected_image = images[0]
@@ -719,12 +742,14 @@ async def save_job_content(
     background_tasks: BackgroundTasks,
     session: Session,
     job_id: str,
-    reviewed_title: str = Form(...),
-    reviewed_markdown: str = Form(...),
+    reviewed_title: str = Form(None),
+    reviewed_markdown: str = Form(None),
     reviewed_linkedin: str = Form(None),
     reviewed_newsletter_subject: str = Form(None),
     reviewed_newsletter_html: str = Form(None),
     selected_image: str = Form(None),
+    nano_banana_prompt: str = Form(None),
+    newsletter_list_ids: list[int] = Form(default=[]),
 ):
     job = await session.get(ArticleJob, job_id)
     if not job:
@@ -748,6 +773,8 @@ async def save_job_content(
     if reviewed_newsletter_subject: job.reviewed_newsletter_subject = reviewed_newsletter_subject
     if reviewed_newsletter_html: job.reviewed_newsletter_html = reviewed_newsletter_html
     if selected_image: job.selected_image = selected_image
+    if nano_banana_prompt is not None: job.nano_banana_prompt = nano_banana_prompt
+    job.newsletter_list_ids = newsletter_list_ids
 
     job.updated_at = datetime.utcnow()
     session.add(job)
@@ -1191,6 +1218,7 @@ async def approve_cluster_plan(
             primary_keyword=task.get("primary_keyword"),
             secondary_keywords=task.get("secondary_keywords", []),
             evaluation_metrics=task.get("evaluation_metrics", {}),
+            target_persona=task.get("target_persona"),
             scheduled_at=scheduled_dt,
             status=JobStatus.queued,
             queue_position=queue_pos,
@@ -1239,6 +1267,13 @@ async def delete_cluster_plan(session: Session, plan_id: str):
     plan = await session.get(ClusterPlan, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Cluster plan not found")
+        
+    # Delete all associated jobs
+    stmt = select(ArticleJob).where(ArticleJob.cluster_plan_id == plan_id)
+    jobs = (await session.exec(stmt)).all()
+    for job in jobs:
+        await session.delete(job)
+        
     await session.delete(plan)
     await session.commit()
     return RedirectResponse(url="/", status_code=303)

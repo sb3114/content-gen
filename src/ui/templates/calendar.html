@@ -56,8 +56,11 @@
       },
       editable: true,
       eventDrop: function(info) {
-        // Handle drag and drop rescheduling
-        const jobId = info.event.id;
+        // Handle drag and drop rescheduling, stripping sub-deliverable suffixes
+        let jobId = info.event.id;
+        if (jobId.endsWith('_li') || jobId.endsWith('_nl')) {
+          jobId = jobId.substring(0, jobId.length - 3);
+        }
         const newDate = info.event.start.toISOString();
         
         // Create form data

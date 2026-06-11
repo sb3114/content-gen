@@ -59,6 +59,9 @@
     <button type="button" class="tab-btn" onclick="switchTab('plan')" id="tab-plan-btn">
       📅 90-Day Content Strategy Plan
     </button>
+    <button type="button" class="tab-btn" onclick="switchTab('newsletter')" id="tab-newsletter-btn">
+      📧 Newsletter
+    </button>
   </div>
 
   <!-- FORM 1: INSTANT CONTENT TO PUBLISH -->
@@ -134,50 +137,6 @@
               <input type="checkbox" name="publish_targets" value="linkedin" checked />
               <span>💼 LinkedIn Post</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);">
-              <input type="checkbox" name="publish_targets" value="newsletter" onchange="document.getElementById('newsletter-options').style.display = this.checked ? 'block' : 'none'" />
-              <span>📧 Newsletter (Brevo)</span>
-            </label>
-          </div>
-        </div>
-
-        <div id="newsletter-options" style="display: none; background: rgba(var(--primary-rgb), 0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border); margin-top: 1rem;">
-          <h3 style="font-size: 0.95rem; margin-bottom: 1rem; color: var(--primary);">Newsletter Configuration</h3>
-          <div class="form-group">
-            <label class="form-label">Newsletter Content Type</label>
-            <div style="display: flex; gap: 1rem;">
-              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                <input type="radio" name="newsletter_type" value="update" checked onchange="document.getElementById('timeframe-group').style.display = 'none'" />
-                <span>News Update (Based on this topic)</span>
-              </label>
-              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                <input type="radio" name="newsletter_type" value="summary" onchange="document.getElementById('timeframe-group').style.display = 'block'" />
-                <span>Published Summary</span>
-              </label>
-            </div>
-          </div>
-          <div class="form-group" id="timeframe-group" style="display: none;">
-            <label class="form-label" for="newsletter_timeframe">Summary Period</label>
-            <select name="newsletter_timeframe" id="newsletter_timeframe" class="form-input">
-              <option value="week">Past Week</option>
-              <option value="month">Past Month</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Send to Lists</label>
-            {% if brevo_lists %}
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; background: var(--surface-1); padding: 1rem; border-radius: 8px;">
-                {% for list in brevo_lists %}
-                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                    <input type="checkbox" name="newsletter_list_ids" value="{{ list.id }}" />
-                    <span>{{ list.name }}</span>
-                  </label>
-                {% endfor %}
-              </div>
-            {% else %}
-              <p class="form-hint" style="color: var(--danger);">No Brevo lists found. Check your API key in Settings.</p>
-            {% endif %}
           </div>
         </div>
       </div>
@@ -288,25 +247,135 @@
       </button>
     </div>
   </form>
+
+  <!-- FORM 3: NEWSLETTER -->
+  <form id="newsletter-content-form" action="/jobs" method="post" class="hidden">
+    <input type="hidden" name="is_newsletter" value="true" />
+    <input type="hidden" name="publish_targets" value="newsletter" />
+    <input type="hidden" name="topic" value="Newsletter Summary" />
+    
+    <div style="background: rgba(var(--primary-rgb), 0.04); border: 1px solid var(--border); padding: 1.25rem; border-radius: var(--radius); margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start;">
+      <span style="font-size: 1.25rem;">📧</span>
+      <p style="font-size: 0.825rem; color: var(--text-muted); line-height: 1.5;">
+        <strong>Newsletter Summary:</strong> This task will summarize all activity and blog posts published over the selected period. It will also seamlessly integrate the latest updates and news in healthcare, healthtech, elderly care, and independent living, citing authoritative sites like the Dementia Society and AgeUK.
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="newsletter_timeframe">Summary Period</label>
+      <select name="newsletter_timeframe" id="newsletter_timeframe_new" class="form-input">
+        <option value="week">Past Week</option>
+        <option value="month">Past Month</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Send to Lists</label>
+      {% if brevo_lists %}
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; background: var(--surface-1); padding: 1rem; border-radius: 8px;">
+          {% for list in brevo_lists %}
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+              <input type="checkbox" name="newsletter_list_ids" value="{{ list.id }}" />
+              <span>{{ list.name }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="form-hint" style="color: var(--danger);">No Brevo lists found. Check your API key in Settings.</p>
+      {% endif %}
+    </div>
+
+    <details class="expandable-section" open>
+      <summary>Recurring Schedule</summary>
+      <div class="expandable-content">
+        <div class="form-group">
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin-bottom: 1rem;">
+            <input type="checkbox" name="is_recurring" value="true" onchange="document.getElementById('recurring-opts').style.display = this.checked ? 'block' : 'none'" />
+            <span style="font-weight: 600;">Enable Recurring Generation</span>
+          </label>
+        </div>
+        
+        <div id="recurring-opts" style="display: none; padding-left: 1.5rem; border-left: 2px solid var(--border);">
+          <div class="form-group">
+            <label class="form-label">Interval</label>
+            <select name="recurring_interval" id="recurring_interval" class="form-input" onchange="updateRecurringDayOptions()">
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" id="recurring-day-label">Day of Week</label>
+            <select name="recurring_day" id="recurring_day" class="form-input">
+              <option value="Monday">Monday</option>
+              <option value="Tuesday">Tuesday</option>
+              <option value="Wednesday">Wednesday</option>
+              <option value="Thursday">Thursday</option>
+              <option value="Friday">Friday</option>
+              <option value="Saturday">Saturday</option>
+              <option value="Sunday">Sunday</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <div class="form-actions" style="margin-top: 2rem;">
+      <a href="/" class="btn btn--ghost">Cancel</a>
+      <button type="submit" class="btn btn--primary">
+        ✦ Queue Newsletter Job
+      </button>
+    </div>
+  </form>
 </div>
 
 <script>
+  function updateRecurringDayOptions() {
+    const interval = document.getElementById('recurring_interval').value;
+    const daySelect = document.getElementById('recurring_day');
+    const dayLabel = document.getElementById('recurring-day-label');
+    
+    daySelect.innerHTML = '';
+    if (interval === 'weekly') {
+      dayLabel.innerText = 'Day of Week';
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      days.forEach(d => {
+        daySelect.innerHTML += `<option value="${d}">${d}</option>`;
+      });
+    } else {
+      dayLabel.innerText = 'Day of Month';
+      for(let i=1; i<=28; i++) {
+        daySelect.innerHTML += `<option value="${i}">${i}</option>`;
+      }
+      daySelect.innerHTML += `<option value="last">Last Day of Month</option>`;
+    }
+  }
+
   function switchTab(mode) {
     const instantForm = document.getElementById('instant-content-form');
     const planForm = document.getElementById('plan-content-form');
+    const newsletterForm = document.getElementById('newsletter-content-form');
     const instantBtn = document.getElementById('tab-instant-btn');
     const planBtn = document.getElementById('tab-plan-btn');
+    const newsletterBtn = document.getElementById('tab-newsletter-btn');
 
+    // Hide all
+    instantForm.classList.add('hidden');
+    planForm.classList.add('hidden');
+    newsletterForm.classList.add('hidden');
+    instantBtn.classList.remove('active');
+    planBtn.classList.remove('active');
+    newsletterBtn.classList.remove('active');
+
+    // Show selected
     if (mode === 'instant') {
       instantForm.classList.remove('hidden');
-      planForm.classList.add('hidden');
       instantBtn.classList.add('active');
-      planBtn.classList.remove('active');
-    } else {
-      instantForm.classList.add('hidden');
+    } else if (mode === 'plan') {
       planForm.classList.remove('hidden');
-      instantBtn.classList.remove('active');
       planBtn.classList.add('active');
+    } else if (mode === 'newsletter') {
+      newsletterForm.classList.remove('hidden');
+      newsletterBtn.classList.add('active');
     }
   }
 </script>

@@ -23,10 +23,12 @@ class GoogleSearchConsoleClient:
             self.creds_info, scopes=self.scopes
         )
 
-    async def validate_connection(self) -> dict:
+    async def validate_connection(self, url: str = None) -> dict:
         """
         Validates connection by generating an OAuth2 access token.
         If generation succeeds, the credentials are valid.
+        If a URL is provided, it also checks if the service account has permissions
+        for that specific domain in GSC.
         """
         try:
             creds = self._get_credentials()
@@ -35,6 +37,21 @@ class GoogleSearchConsoleClient:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, creds.refresh, GoogleRequest())
             if creds.token:
+                if url:
+                    headers = {
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {creds.token}"
+                    }
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        resp = await client.get(
+                            f"https://indexing.googleapis.com/v3/urlNotifications/metadata?url={url}",
+                            headers=headers
+                        )
+                        if resp.status_code == 403:
+                            return {
+                                "ok": False, 
+                                "error": f"Credentials are valid, but {self.creds_info.get('client_email')} lacks 'Owner' permission in Google Search Console for the site ({url})."
+                            }
                 return {"ok": True, "client_email": self.creds_info.get("client_email")}
             return {"ok": False, "error": "Failed to retrieve access token."}
         except Exception as e:

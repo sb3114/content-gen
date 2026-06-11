@@ -24,30 +24,26 @@ async def generate_image_prompt(title: str, body_markdown: str, db_settings=None
     """Uses models/nano-banana-pro-preview to write a high-fidelity image prompt."""
     client = get_genai_client(db_settings)
     
-    prompt_generator_prompt = f"""You are an elite creative director and prompt engineer. Your job is to write a highly detailed, professional image generation prompt for the Imagen model.
-The image will be used for a blog post and a LinkedIn post.
-
-Article Details:
-- Title: {title}
-- Abstract: {body_markdown[:1500]}
+    prompt_generator_prompt = f"""Write a concise, highly descriptive image generation prompt for a blog post.
+Title: {title}
+Abstract: {body_markdown[:1000]}
 """
 
     if feedback:
-        prompt_generator_prompt += f"""
-## User Feedback / Refinement Request
-The user did not like the previous images. You MUST strictly incorporate this feedback to adjust the image details, subjects, setting, style, or focus:
-"{feedback}"
-"""
+        prompt_generator_prompt += f"\nApply this user feedback strictly: \"{feedback}\"\n"
 
-    prompt_generator_prompt += """
-Guidelines for the image generation prompt:
-1. It must produce a high-quality photograph that is as close as possible to a real, human-like look.
-2. The context must align with BondNow (a platform connecting families and elderly parents, senior care, warm family bonding, technology assisting care).
-3. Specify warm lighting, high detail, realistic skin texture, natural smiles, and empathetic scenes.
-4. Avoid any text, banners, overlay, or logos in the image.
-5. Keep it descriptive (describing the subject, setting, style, camera angle, and color palette).
+    from src.pipeline.memory import load_image_memory
+    image_memory = load_image_memory()
+    
+    prompt_generator_prompt += f"""
+Required Style: Photorealistic, warm lighting, natural, empathetic.
+Context: BondNow (senior care, family bonding, technology).
+Constraints: No text, no overlays, no logos.
 
-Return ONLY the final text-to-image prompt as plain text. Do not include any introductory text, notes, conversational filler, markdown formatting, or quotes.
+## Learned Guardrails (Strictly enforce these)
+{image_memory if image_memory else 'None'}
+
+Output ONLY the final image prompt as plain text. No markdown, no quotes, no conversational filler.
 """
     try:
         logger.info("Calling models/nano-banana-pro-preview to generate image prompt...")
@@ -70,14 +66,21 @@ Return ONLY the final text-to-image prompt as plain text. Do not include any int
         return fallback
 
 
-async def generate_images_for_job(job, db_settings=None, feedback: Optional[str] = None) -> List[str]:
+async def generate_images_for_job(job, db_settings=None, prompt_override: Optional[str] = None) -> List[str]:
     """Generates 3 image candidates for a job and saves them to static storage."""
     client = get_genai_client(db_settings)
     
     title = job.reviewed_title or job.topic
     body = job.reviewed_markdown or job.article_markdown or ""
     
-    image_prompt = await generate_image_prompt(title, body, db_settings, feedback)
+    if prompt_override:
+        image_prompt = prompt_override
+    elif getattr(job, "nano_banana_prompt", None):
+        image_prompt = job.nano_banana_prompt
+    else:
+        image_prompt = await generate_image_prompt(title, body, db_settings)
+        if job:
+            job.nano_banana_prompt = image_prompt
     
     static_dir = "src/ui/static/generated_images"
     os.makedirs(static_dir, exist_ok=True)
@@ -91,10 +94,10 @@ async def generate_images_for_job(job, db_settings=None, feedback: Optional[str]
     for model_name in models_to_try:
         try:
             logger.info(f"Generating 3 images using {model_name}...")
-            response = client.models.generate_image(
+            response = client.models.generate_images(
                 model=model_name,
                 prompt=image_prompt,
-                config=types.GenerateImageConfig(
+                config=types.GenerateImagesConfig(
                     number_of_images=3,
                     output_mime_type='image/jpeg',
                     aspect_ratio="1:1"
@@ -104,8 +107,11 @@ async def generate_images_for_job(job, db_settings=None, feedback: Optional[str]
         except Exception as e:
             logger.warning(f"Failed to generate images using {model_name}: {e}")
             
-    if not response or not response.generated_images:
-        raise ValueError("Image generation failed with all available Imagen models.")
+    if not response:
+        raise ValueError("Image generation failed. Response is None.")
+    if not getattr(response, 'generated_images', None):
+        logger.error(f"Image generation failed. Response: {response}")
+        raise ValueError("Image generation failed with all available Imagen models (empty generated_images).")
         
     saved_paths = []
     for idx, img in enumerate(response.generated_images):
@@ -113,7 +119,14 @@ async def generate_images_for_job(job, db_settings=None, feedback: Optional[str]
         # Use a unique identifier to avoid browser caching issues when regenerating
         filename = f"{job.id}_{uuid.uuid4().hex[:8]}_{idx}.jpg"
         filepath = os.path.join(static_dir, filename)
-        img.image.save(filepath)
+        
+        # In SDK 2.8.0, use image.image_bytes
+        if hasattr(img.image, 'image_bytes'):
+            with open(filepath, 'wb') as f:
+                f.write(img.image.image_bytes)
+        else:
+            # Fallback
+            img.image.save(filepath)
         saved_paths.append(f"/static/generated_images/{filename}")
         logger.info(f"Saved generated image {idx} to {filepath}")
         

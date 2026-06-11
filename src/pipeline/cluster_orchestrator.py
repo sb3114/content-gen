@@ -84,19 +84,17 @@ async def run_cluster_plan_stage1(plan_id: str):
         db_settings = await session.get(CompanySettings, 1)
         core_pillars_context = (db_settings.core_pillars if db_settings else None) or ""
         company_description = (db_settings.company_description if db_settings else None) or ""
-        icp = (db_settings.icp if db_settings else None) or ""
-        target_audience = (db_settings.target_audience if db_settings else None) or ""
-        personas = (db_settings.personas if db_settings else None) or ""
-        pain_points = (db_settings.pain_points if db_settings else None) or ""
-        messaging_framework = (db_settings.messaging_framework if db_settings else None) or ""
-        
+        # Prefer new consolidated icp_context; fall back to legacy icp
+        icp_context = (getattr(db_settings, "icp_context", None) if db_settings else None) or ""
+        if not icp_context.strip():
+            icp_context = (db_settings.icp if db_settings else None) or ""
+
         business_context_str = f"""Company Description: {company_description}
-Target Ideal Customer Profile (ICP): {icp}
-Target Audience: {target_audience}
-Personas: {personas}
-Pain Points: {pain_points}
-Messaging Framework: {messaging_framework}
-Core Content Pillars & Messaging Context: {core_pillars_context}"""
+Core Content Pillars & Messaging Context: {core_pillars_context}
+
+=== ICP & PERSONA CONTEXT (full — read carefully) ===
+{icp_context}
+======================================================"""
         
         plan_seed = plan.seed
         min_search_volume = plan.min_search_volume
@@ -133,11 +131,70 @@ Core Content Pillars & Messaging Context: {core_pillars_context}"""
         password = (db_settings.dataforseo_password if db_settings else None) or settings.dataforseo_password
         creds = base64.b64encode(f"{login}:{password}".encode()).decode() if (login and password) else None
 
-        # 1. ALWAYS deconstruct company brand pillars first
+        # ── STEP 0: Extract personas from icp_context (goal-driven loop foundation) ──────────
+        persona_profiles = []
+        if icp_context.strip():
+            logger.info("Extracting structured persona profiles from ICP context...")
+            persona_extract_prompt = f"""\
+You are an expert ICP analyst. Read the following ICP & Persona Context and extract each distinct persona profile.
+
+=== ICP CONTEXT ===
+{icp_context}
+===================
+
+For each persona, extract:
+- name: short label (e.g. "CTO at Series B SaaS")
+- role: their job title / function
+- goals: what they want to achieve (2-4 bullet points)
+- pain_points: their frustrations / challenges (2-4 bullet points)
+- content_interests: what type of content resonates with them (2-4 bullet points)
+- search_language: the words and phrases they would type into Google (5-8 example search queries)
+
+Return strict JSON:
+{{
+  "personas": [
+    {{
+      "name": "CTO at Series B SaaS",
+      "role": "Chief Technology Officer",
+      "goals": ["reduce deployment time", "pass SOC2"],
+      "pain_points": ["legacy infrastructure", "team velocity"],
+      "content_interests": ["ROI case studies", "architecture deep-dives"],
+      "search_language": ["cloud security compliance checklist", "SOC2 prep for startups"]
+    }}
+  ]
+}}
+"""
+            try:
+                persona_text, _ = await call_llm(
+                    prompt=persona_extract_prompt,
+                    tier="haiku",
+                    system_instruction="You are an expert ICP analyst. Extract structured persona profiles from the provided ICP context.",
+                    use_json=True,
+                    db_settings=db_settings
+                )
+                persona_profiles = json.loads(persona_text).get("personas", [])
+                logger.info(f"Extracted {len(persona_profiles)} persona profiles from ICP context.")
+            except Exception as e:
+                logger.warning(f"Persona extraction failed: {e}. Proceeding without persona targeting.")
+
+        # ── STEP 1: Deconstruct brand pillars with persona-aware seed generation ──────────────
         logger.info("Deconstructing core brand pillars using LLM...")
         seed_instruction = f'We have a content planning campaign seed theme: "{plan_seed}"'
         if plan_seed == "Brand Strategy":
             seed_instruction = "No specific campaign seed theme was provided; we are building our strategy directly from our core brand pillars."
+
+        persona_guidance = ""
+        if persona_profiles:
+            persona_summary = "\n".join(
+                f"- {p['name']}: searches for {', '.join(p.get('search_language', [])[:3])}"
+                for p in persona_profiles
+            )
+            persona_guidance = f"""
+PERSONA-AWARE SEEDING:
+For each pillar, you must generate seeds that resonate with each of the following personas:
+{persona_summary}
+Make sure the seed phrases reflect the actual language each persona uses when searching.
+"""
 
         sys_instr = f"""You are an expert SEO Strategist.
 {seed_instruction}
@@ -151,7 +208,7 @@ Your task is to:
 1. Deconstruct all major content pillars from the company context.
    You MUST deconstruct the exact core brand pillars provided in 'Core Content Pillars & Messaging Context'. Do NOT make up new pillars. Maintain their names as defined in the context.
 2. For each identified content pillar, generate exactly 3 highly relevant, high-intent "short seed words/phrases" (of 2 to 4 words) to query for keyword ideas.
-
+{persona_guidance}
 Return the result in strict JSON format matching this exact schema:
 {{
   "pillars": [
@@ -426,6 +483,147 @@ Return your response in strict JSON matching this exact schema:
                     "status": "approved"
                 })
 
+        # ── STEP 3: Goal-Driven Persona Calibration Loop (max 5 iterations) ────────────────────
+        # For each persona, verify that at least one keyword strongly matches their profile.
+        # If not, generate recalibrated replacement keywords and try again.
+        MAX_CALIBRATION_LOOPS = 5
+        if persona_profiles and keywords_payload:
+            logger.info(f"Starting persona calibration loop for {len(persona_profiles)} personas...")
+            for loop_idx in range(MAX_CALIBRATION_LOOPS):
+                all_pass = True
+                recal_needed = []
+
+                # Build calibration check payload
+                kw_summary = "\n".join(
+                    f"- [{kw.get('pillar')}] {kw.get('role','spoke').upper()}: \"{kw['keyword']}\" (PAA: {', '.join(kw.get('paa_questions', [])[:2])})"
+                    for kw in keywords_payload[:30]  # cap for token efficiency
+                )
+                persona_defs = "\n".join(
+                    f"Persona: {p['name']} | Goals: {', '.join(p.get('goals',[])[:2])} | Pain Points: {', '.join(p.get('pain_points',[])[:2])} | Searches: {', '.join(p.get('search_language',[])[:3])}"
+                    for p in persona_profiles
+                )
+
+                calibration_prompt = f"""\
+You are a senior content strategist validating keyword-to-persona alignment.
+
+=== PERSONAS ===
+{persona_defs}
+
+=== DISCOVERED KEYWORDS ===
+{kw_summary}
+
+TASK: For each persona, check whether at least 2-3 of the keywords above are a STRONG match for that persona's goals, pain points, and search language.
+A keyword is a STRONG match if a real person with this persona's profile would likely search for it or find it highly valuable.
+
+Return a strict JSON object:
+{{
+  "all_aligned": true,
+  "misaligned_personas": [
+    {{
+      "persona_name": "CTO at Series B SaaS",
+      "issue": "No keywords address compliance or SOC2 topics",
+      "suggested_replacement_seeds": ["SOC2 readiness checklist", "cloud compliance automation"]
+    }}
+  ]
+}}
+If all personas have strong keyword coverage, return {{ "all_aligned": true, "misaligned_personas": [] }}.
+"""
+                try:
+                    calib_text, _ = await call_llm(
+                        prompt=calibration_prompt,
+                        tier="sonnet",
+                        system_instruction=f"You are an expert content strategist.\n{business_context_str}",
+                        use_json=True,
+                        db_settings=db_settings
+                    )
+                    calib_data = json.loads(calib_text)
+                    misaligned = calib_data.get("misaligned_personas", [])
+
+                    if calib_data.get("all_aligned") or not misaligned:
+                        logger.info(f"Calibration loop {loop_idx+1}/{MAX_CALIBRATION_LOOPS}: All personas aligned. ✓")
+                        break
+
+                    logger.info(f"Calibration loop {loop_idx+1}/{MAX_CALIBRATION_LOOPS}: {len(misaligned)} persona(s) misaligned. Recalibrating...")
+                    all_pass = False
+
+                    # Recalibrate: generate replacement keywords for each misaligned persona
+                    for mis in misaligned:
+                        p_name_mis = mis.get("persona_name", "")
+                        issue = mis.get("issue", "")
+                        new_seeds = mis.get("suggested_replacement_seeds", [])
+                        if not new_seeds:
+                            continue
+
+                        # Find the persona profile
+                        matched_persona = next((p for p in persona_profiles if p["name"] == p_name_mis), None)
+                        if not matched_persona:
+                            continue
+
+                        recal_prompt = f"""\
+We are recalibrating keywords for a specific persona that is currently underserved.
+
+Persona: {matched_persona['name']}
+Goals: {', '.join(matched_persona.get('goals', []))}
+Pain Points: {', '.join(matched_persona.get('pain_points', []))}
+Content Interests: {', '.join(matched_persona.get('content_interests', []))}
+Issue identified: {issue}
+Suggested seeds to explore: {', '.join(new_seeds)}
+
+Generate exactly 3 highly relevant, high-intent keywords for this persona.
+Each should have search_volume between {min_search_volume} and {max_search_volume}, keyword_difficulty < {max_difficulty}.
+One must be "role": "hub", two as "role": "spoke".
+
+Return strict JSON:
+{{
+  "keywords": [
+    {{
+      "keyword": "recalibrated keyword phrase",
+      "search_volume": 600,
+      "keyword_difficulty": 28,
+      "role": "hub",
+      "source": "persona_recalibration",
+      "paa_questions": ["question 1", "question 2", "question 3"],
+      "secondary_keywords": ["related term 1", "related term 2"]
+    }}
+  ]
+}}
+"""
+                        try:
+                            recal_text, _ = await call_llm(
+                                prompt=recal_prompt,
+                                tier="sonnet",
+                                system_instruction=f"You are an expert SEO strategist targeting the specific persona: {matched_persona['name']}.",
+                                use_json=True,
+                                db_settings=db_settings
+                            )
+                            recal_data = json.loads(recal_text)
+                            recal_kws = recal_data.get("keywords", [])
+
+                            # Append new recalibrated keywords to the payload (tagged with persona)
+                            pillar_for_persona = next(
+                                (kw.get("pillar") for kw in keywords_payload if kw.get("pillar")),
+                                "Brand Strategy"
+                            )
+                            for rkw in recal_kws:
+                                rkw["pillar"] = pillar_for_persona
+                                rkw["status"] = "approved"
+                                rkw.setdefault("secondary_keywords", [])
+                                rkw.setdefault("paa_questions", [])
+                                keywords_payload.append(rkw)
+
+                            logger.info(f"Recalibrated {len(recal_kws)} keywords for persona '{p_name_mis}'.")
+                        except Exception as re_err:
+                            logger.warning(f"Recalibration LLM call failed for persona '{p_name_mis}': {re_err}")
+
+                except Exception as cal_err:
+                    logger.warning(f"Calibration loop {loop_idx+1} failed: {cal_err}. Skipping calibration.")
+                    break
+
+                if all_pass:
+                    break
+            else:
+                logger.info(f"Persona calibration reached max {MAX_CALIBRATION_LOOPS} loops. Proceeding with best available keywords.")
+
         # 3. Quick write session (Zero connection starvation!)
         async with AsyncSessionLocal() as session:
             p_obj = await session.get(ClusterPlan, plan_id)
@@ -510,20 +708,17 @@ async def run_cluster_plan_stage2(plan_id: str):
 
         db_settings = await session.get(CompanySettings, 1)
         company_description = (db_settings.company_description if db_settings else None) or ""
-        icp = (db_settings.icp if db_settings else None) or ""
         core_pillars_context = (db_settings.core_pillars if db_settings else None) or ""
-        target_audience = (db_settings.target_audience if db_settings else None) or ""
-        personas = (db_settings.personas if db_settings else None) or ""
-        pain_points = (db_settings.pain_points if db_settings else None) or ""
-        messaging_framework = (db_settings.messaging_framework if db_settings else None) or ""
-        
+        icp_context = (getattr(db_settings, "icp_context", None) if db_settings else None) or ""
+        if not icp_context.strip():
+            icp_context = (db_settings.icp if db_settings else None) or ""
+
         business_context_str = f"""Company Description: {company_description}
-Target Ideal Customer Profile (ICP): {icp}
-Target Audience: {target_audience}
-Personas: {personas}
-Pain Points: {pain_points}
-Messaging Framework: {messaging_framework}
-Core Content Pillars & Messaging Context: {core_pillars_context}"""
+Core Content Pillars & Messaging Context: {core_pillars_context}
+
+=== ICP & PERSONA CONTEXT (full — read carefully) ===
+{icp_context}
+======================================================"""
         
         plan_seed = plan.seed
         plan_keywords = list(plan.keywords or [])

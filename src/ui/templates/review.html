@@ -352,8 +352,7 @@
 {# Skip content review form when job is at keyword confirmation gate #}
 {% set is_keyword_gate = (job.status.value == 'pending_review' and job.current_step == 'keyword_confirmation') %}
 {% set is_editable = (job.status.value in ['pending_review', 'scheduled', 'approved'] and not is_keyword_gate) %}
-{% set has_content = (job.status.value not in ['pending', 'running', 'resuming', 'queued', 'failed'] and not
-is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
+{% set has_content = (job.status.value not in ['pending', 'running', 'resuming', 'queued', 'failed'] and not is_keyword_gate and (job.reviewed_markdown or job.article_markdown or job.reviewed_newsletter_html or job.newsletter_html)) %}
 
 {% if has_content %}
 <form action="/jobs/{{ job.id }}/approve" method="post" id="review-form">
@@ -363,6 +362,7 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
     {# Left column: Article ────────────────────────────────────── #}
     <div class="review-main" style="flex: 1; display: flex; flex-direction: column; gap: 1.5rem; min-width: 0;">
 
+      {% if job.reviewed_markdown or job.article_markdown %}
       <div class="review-col">
         <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; width: 100%;">
           <h2 class="section-title" style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">📝 Article</h2>
@@ -399,26 +399,21 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
             </label>
             {% endfor %}
           </div>
-          
-          {% if is_editable %}
-          <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: flex-end;">
-            <div style="flex: 1;">
-              <input type="text" id="image-feedback" placeholder="Describe how to regenerate images (optional)..." class="form-input" style="font-size: 0.85rem; padding: 0.5rem 0.75rem; width: 100%;">
-            </div>
-            <button type="button" class="btn btn--ghost" style="padding: 0.5rem 1rem; white-space: nowrap; height: 38px; display: flex; align-items: center; gap: 0.35rem;" onclick="regenerateImages('{{ job.id }}')">
-              🔄 Regenerate
-            </button>
-          </div>
-          {% endif %}
-          
           {% else %}
           <div style="padding: 1.5rem; background: var(--bg-body); border: 1px dashed var(--border); border-radius: var(--radius); text-align: center; color: var(--text-dim);">
             <p style="margin: 0;">No images generated yet.</p>
-            {% if is_editable %}
-            <button type="button" class="btn btn--primary" style="margin-top: 0.75rem; font-size: 0.85rem;" onclick="regenerateImages('{{ job.id }}')">
-              🎨 Generate Images
-            </button>
-            {% endif %}
+          </div>
+          {% endif %}
+          
+          {% if is_editable %}
+          <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-dim);">Nano Banana Image Prompt</label>
+            <textarea id="nano-banana-prompt" name="nano_banana_prompt" class="form-textarea" style="font-size: 0.85rem; padding: 0.75rem; min-height: 80px; width: 100%;">{{ job.nano_banana_prompt or '' }}</textarea>
+            <div style="align-self: flex-end;">
+              <button type="button" class="btn btn--ghost" style="padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.35rem;" onclick="regenerateImages('{{ job.id }}')">
+                🔄 {% if job.generated_images %}Regenerate Images{% else %}Generate Images{% endif %}
+              </button>
+            </div>
           </div>
           {% endif %}
         </div>
@@ -438,6 +433,7 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
           </div>
         </div>
       </div>
+      {% endif %}
 
       {% if job.personalization_snippets %}
       <details class="detail-panel" open
@@ -630,13 +626,22 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
 
         <div class="editor-refining-wrapper" id="newsletter-refining-wrap">
           <div class="form-group">
-            <label class="form-label">Email Content (HTML)</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <label class="form-label" style="margin: 0;">Email Content (HTML)</label>
+              <div style="display: flex; gap: 0.25rem; align-items: center;">
+                <button type="button" id="tab-nl-edit" class="btn btn--primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: 4px; box-shadow: none;" onclick="showNewsletterTab('edit')">✏️ Edit HTML</button>
+                <button type="button" id="tab-nl-preview" class="btn btn--ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: 4px;" onclick="showNewsletterTab('preview')">👁️ Live Preview</button>
+              </div>
+            </div>
             <textarea id="newsletter-editor" name="reviewed_newsletter_html" class="form-textarea form-textarea--tall"
               style="min-height: 300px; font-family: monospace; font-size: 0.85rem; {% if not is_editable %}background: var(--bg-body); cursor: default; border-color: transparent;{% endif %}"
               {% if not is_editable %}readonly{% endif
               %}>{{ job.reviewed_newsletter_html or job.newsletter_html or '' }}</textarea>
+            
+            <div id="newsletter-preview" style="display: none; padding: 1.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); min-height: 300px; max-height: 600px; overflow-y: auto; color: var(--text);"></div>
+            
             {% if is_editable %}
-            <p class="form-hint">HTML content for Brevo campaign. Basic tags are recommended.</p>
+            <p class="form-hint" id="newsletter-hint">HTML content for Brevo campaign. Basic tags are recommended.</p>
             {% endif %}
           </div>
         </div>
@@ -738,17 +743,17 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
   }
 
   function regenerateImages(jobId) {
-    const feedback = document.getElementById('image-feedback')?.value || '';
+    const promptText = document.getElementById('nano-banana-prompt')?.value || '';
     
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = `/jobs/${jobId}/regenerate_images`;
     
-    const feedbackInput = document.createElement('input');
-    feedbackInput.type = 'hidden';
-    feedbackInput.name = 'feedback';
-    feedbackInput.value = feedback;
-    form.appendChild(feedbackInput);
+    const promptInput = document.createElement('input');
+    promptInput.type = 'hidden';
+    promptInput.name = 'nano_banana_prompt';
+    promptInput.value = promptText;
+    form.appendChild(promptInput);
     
     // Add simple inline spinner
     const btn = event.currentTarget;
@@ -764,6 +769,32 @@ is_keyword_gate and (job.reviewed_markdown or job.article_markdown)) %}
     const previewBtn = document.getElementById('tab-preview');
     const textarea = document.getElementById('reviewed_markdown');
     const previewDiv = document.getElementById('article-preview');
+
+    if (tabName === 'edit') {
+      editBtn.classList.add('btn--primary');
+      editBtn.classList.remove('btn--ghost');
+      previewBtn.classList.add('btn--ghost');
+      previewBtn.classList.remove('btn--primary');
+      textarea.style.display = 'block';
+      previewDiv.style.display = 'none';
+    } else {
+      previewBtn.classList.add('btn--primary');
+      previewBtn.classList.remove('btn--ghost');
+      editBtn.classList.add('btn--ghost');
+      editBtn.classList.remove('btn--primary');
+      textarea.style.display = 'none';
+      previewDiv.style.display = 'block';
+      
+      // Update preview content
+      previewDiv.innerHTML = textarea.value;
+    }
+  }
+
+  function showNewsletterTab(tabName) {
+    const editBtn = document.getElementById('tab-nl-edit');
+    const previewBtn = document.getElementById('tab-nl-preview');
+    const textarea = document.getElementById('newsletter-editor');
+    const previewDiv = document.getElementById('newsletter-preview');
 
     if (tabName === 'edit') {
       editBtn.classList.add('btn--primary');

@@ -46,22 +46,22 @@ Return JSON with: subject, preheader, greeting, body_html, cta_text, cta_url.
 """
 
 _SUMMARY_PROMPT = """\
-You are an email marketing expert. Create a concise, high-engagement digest newsletter of our recent publications.
+You are an email marketing expert. Create a concise, high-engagement digest newsletter of our recent publications and industry news.
 
 ## Period
 {timeframe}
 
-## Recent Articles
+## Recent Published Blogs on BondNow
 {articles_text}
 
 ## Newsletter Rules
-- Subject line: Engaging hook summarizing the value of the digest (e.g., "The best of this week in [Topic]").
+- Subject line: Engaging hook summarizing the value of the digest (e.g., "The best of this week in Elderly Care & Tech").
 - Preheader: A quick summary of the key insights waiting inside.
 - Body HTML:
     - Brief, high-energy intro <h2>.
-    - List each article with an <h3> title and a 1-sentence "why you should read this" hook.
-    - Use <a> tags to link directly to the articles.
-    - Use <ul> and <li> for scannability.
+    - Summarise what has happened on BondNow based on the Recent Published Blogs provided. List each article with an <h3> title, a short engaging summary, and an <a> tag linking to the URL.
+    - Seamlessly integrate the latest updates and news happening in healthcare, healthtech, elderly care, and independent living. **You MUST use Google Search to find recent, real news. Do not hallucinate or rely on internal memory.** Cite well-known, authoritative sites like the Dementia Society, AgeUK, Alzheimer's Association, or NHS.
+    - Format nicely for ease of readability (use short paragraphs, bullet points <ul>/<li>).
     - Aim for brevity and a high "click-to-read" intent.
 
 Return JSON with: subject, preheader, greeting, body_html, cta_text, cta_url.
@@ -77,46 +77,44 @@ async def run_newsletter_adaptation(
         if not job:
             raise ValueError("Job not found")
         
-        newsletter_type = job.newsletter_type or "update"
+        is_summary = job.is_newsletter or job.newsletter_type == "summary"
         
-    if newsletter_type == "summary":
-        # Fetch recently published articles
+    if is_summary:
         timeframe = job.newsletter_timeframe or "week"
         days = 7 if timeframe == "week" else 30
         since = datetime.utcnow() - timedelta(days=days)
         
+        from src.models.blog import PublishedBlog
         async with AsyncSessionLocal() as session:
-            stmt = select(ArticleJob).where(
-                ArticleJob.status == JobStatus.published,
-                ArticleJob.updated_at >= since
+            stmt = select(PublishedBlog).where(
+                PublishedBlog.created_at >= since
             )
-            recent_jobs = (await session.exec(stmt)).all()
+            recent_blogs = (await session.exec(stmt)).all()
             
         articles_text = ""
-        for rj in recent_jobs:
-            title = rj.reviewed_title or (rj.content_plan.get("chosen_title") if rj.content_plan else rj.topic)
-            articles_text += f"- {title}: {rj.wp_post_url}\n"
+        for b in recent_blogs:
+            articles_text += f"- Title: {b.title}\n  URL: {b.url}\n  Context: {b.description or b.context[:150]}\n\n"
             
         prompt = _SUMMARY_PROMPT.format(
-            timeframe=timeframe,
-            articles_text=articles_text or "No new articles this period."
+            timeframe=f"Past {timeframe.capitalize()}",
+            articles_text=articles_text or "No new articles published in this period."
         )
     else:
-        # News Update type
-        excerpt = " ".join(article_markdown.split()[:500]) if article_markdown else ""
+        # Standard update
+        excerpt = " ".join(article_markdown.split()[:150]) if article_markdown else ""
+        title = plan.chosen_title if plan else job.topic
         prompt = _UPDATE_PROMPT.format(
-            title=plan.chosen_title if plan else job.topic,
+            title=title,
             target_audience=plan.target_audience if plan else "Subscribers",
             excerpt=excerpt,
-            blog_url=job.wp_post_url or ""
+            blog_url="[Insert Final URL Here]"
         )
 
     from src.pipeline.llm import call_llm
-
-    text, usage = await call_llm(
+    response_text, usage = await call_llm(
         prompt=prompt,
         tier="sonnet",
-        response_schema=NewsletterSchema
+        response_schema=NewsletterSchema,
+        use_search_grounding=True
     )
-    
-    return NewsletterSchema(**json.loads(text.strip())), usage
+    return NewsletterSchema(**json.loads(response_text)), usage

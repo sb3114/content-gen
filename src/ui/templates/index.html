@@ -187,6 +187,13 @@
           🎯 {{ plan.competitor_url.replace('https://', '').replace('http://', '').split('/')[0] }}
         </span>
         {% endif %}
+        {% if plan.audience_split %}
+        <span
+          style="background: rgba(16,185,129,0.05); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid rgba(16,185,129,0.2); color: var(--success);"
+          title="Target Personas">
+          👤 {% for s in plan.audience_split %}{{ s.percentage }}% {{ s.persona }}{% if not loop.last %}, {% endif %}{% endfor %}
+        </span>
+        {% endif %}
         {% if plan.keywords %}
         <span
           style="background: var(--surface-2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--surface-3);">
@@ -255,8 +262,11 @@
       },
       editable: true,
       eventDrop: function (info) {
-        // Handle drag and drop rescheduling
-        const jobId = info.event.id;
+        // Handle drag and drop rescheduling, stripping sub-deliverable suffixes
+        let jobId = info.event.id;
+        if (jobId.endsWith('_li') || jobId.endsWith('_nl')) {
+          jobId = jobId.substring(0, jobId.length - 3);
+        }
         const newDate = info.event.start.toISOString();
 
         // Create form data
@@ -411,6 +421,11 @@
     </details>
 
     <div class="job-card__meta" style="margin-top: 0.75rem;">
+      {% if plan.audience_split %}
+      <span class="tag" style="background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.2); color: var(--success);" title="Target Personas">
+        👤 {% for s in plan.audience_split %}{{ s.percentage }}% {{ s.persona }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </span>
+      {% endif %}
       {% if plan.competitor_url %}
       <span class="tag" title="Competitor Target Domain">🎯 Competitor: {{ plan.competitor_url.replace('https://',
         '').replace('http://', '').split('/')[0] }}</span>
@@ -476,13 +491,21 @@
       {{ job.reviewed_title or job.content_plan.chosen_title if job.content_plan else job.topic }}
     </h3>
 
-    {% if job.core_messaging_pillar %}
-    <div
-      style="font-size: 0.8rem; font-weight: 600; color: #818cf8; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); display: inline-block; margin-top: 0.2rem; margin-bottom: 0.5rem;"
-      class="pillar-badge">
-      🎯 Pillar: {{ job.core_messaging_pillar }}
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.2rem; margin-bottom: 0.5rem;">
+      {% if job.core_messaging_pillar %}
+      <div
+        style="font-size: 0.8rem; font-weight: 600; color: #818cf8; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); display: inline-block;"
+        class="pillar-badge">
+        🎯 Pillar: {{ job.core_messaging_pillar }}
+      </div>
+      {% endif %}
+      {% if job.target_persona %}
+      <div
+        style="font-size: 0.8rem; font-weight: 600; color: var(--success); background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); display: inline-block;">
+        👤 Persona: {{ job.target_persona }}
+      </div>
+      {% endif %}
     </div>
-    {% endif %}
 
     <p class="job-card__topic">Topic: {{ job.topic }}</p>
 

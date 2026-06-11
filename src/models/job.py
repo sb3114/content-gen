@@ -44,6 +44,7 @@ class ArticleJob(SQLModel, table=True):
     competitor_urls: List[str] = Field(default=[], sa_column=Column(JSON))
     seed_keywords: List[str] = Field(default=[], sa_column=Column(JSON))
     personalization_snippets: Optional[str] = Field(default=None, sa_column=Column(Text))
+    target_persona: Optional[str] = Field(default=None)
 
     # ── Queue & workflow control ─────────────────────────────────────────
     queue_position: Optional[int] = Field(default=None)   # 1 = next to run
@@ -54,7 +55,10 @@ class ArticleJob(SQLModel, table=True):
     publish_wordpress: bool = Field(default=True, sa_column=Column(Boolean))
     publish_linkedin: bool = Field(default=True, sa_column=Column(Boolean))
     publish_newsletter: bool = Field(default=False, sa_column=Column(Boolean))
-    newsletter_type: Optional[str] = Field(default="update") # 'update' or 'summary'
+    is_newsletter: bool = Field(default=False, sa_column=Column(Boolean))
+    is_recurring: bool = Field(default=False, sa_column=Column(Boolean))
+    recurring_interval: Optional[str] = Field(default=None) # 'weekly', 'monthly'
+    recurring_day: Optional[str] = Field(default=None) # 'Monday', '1', '15'
     newsletter_timeframe: Optional[str] = Field(default=None) # e.g. 'week', 'month'
     newsletter_list_ids: List[int] = Field(default=[], sa_column=Column(JSON))
     scheduled_at: Optional[datetime] = Field(default=None)
@@ -80,6 +84,7 @@ class ArticleJob(SQLModel, table=True):
     newsletter_html: Optional[str] = Field(default=None, sa_column=Column(Text))
     generated_images: List[str] = Field(default=[], sa_column=Column(JSON))
     selected_image: Optional[str] = Field(default=None)
+    nano_banana_prompt: Optional[str] = Field(default=None, sa_column=Column(Text))
 
     # ── HITL: user-edited fields ─────────────────────────────────────────
     reviewed_title: Optional[str] = Field(default=None)
