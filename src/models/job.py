@@ -51,9 +51,9 @@ class ArticleJob(SQLModel, table=True):
     auto_approve: bool = Field(default=False, sa_column=Column(Boolean))  # skip all review gates
 
     # ── Workflow Settings ───────────────────────────────────────────────
-    publish_targets: List[str] = Field(default=["wordpress", "linkedin"], sa_column=Column(JSON))
+    publish_targets: List[str] = Field(default=["wordpress"], sa_column=Column(JSON))
     publish_wordpress: bool = Field(default=True, sa_column=Column(Boolean))
-    publish_linkedin: bool = Field(default=True, sa_column=Column(Boolean))
+    publish_linkedin: bool = Field(default=False, sa_column=Column(Boolean))
     publish_newsletter: bool = Field(default=False, sa_column=Column(Boolean))
     is_newsletter: bool = Field(default=False, sa_column=Column(Boolean))
     is_recurring: bool = Field(default=False, sa_column=Column(Boolean))
@@ -142,7 +142,7 @@ class ClusterPlan(SQLModel, table=True):
     keywords: List[dict] = Field(default=[], sa_column=Column(JSON))
     num_pillars: int = Field(default=3)
     spokes_per_pillar: int = Field(default=3)
-    publish_targets: List[str] = Field(default=["wordpress", "linkedin"], sa_column=Column(JSON))
+    publish_targets: List[str] = Field(default=["wordpress"], sa_column=Column(JSON))
     error_message: Optional[str] = Field(default=None, sa_column=Column(Text))
     
     # Configurable keyword constraints

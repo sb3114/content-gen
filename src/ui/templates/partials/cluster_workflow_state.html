@@ -106,11 +106,23 @@
     <!-- LEFT: VERTICAL AGENTIC TIMELINE -->
     <div class="timeline-container">
 
+      <!-- Hidden data blocks for pipeline steps -->
+      <script type="application/json" id="data-agent1">
+        {{ plan.keywords | default([]) | tojson | safe }}
+      </script>
+      <script type="application/json" id="data-agent2">
+        {{ plan.tasks | default([]) | tojson | safe }}
+      </script>
+      <script type="application/json" id="data-agent3">
+        {{ plan.tasks | default([]) | tojson | safe }}
+      </script>
+
       <!-- AGENT 1: KEYWORD RESEARCH & DISCOVERY -->
       {% set a1_active = plan.status == 'planning' and plan.current_step == 'keyword_research' %}
       {% set a1_complete = plan.status in ['keyword_review', 'generating_clusters', 'cluster_review', 'approved'] %}
       <div
-        class="timeline-node {% if a1_active %}active{% elif a1_complete %}complete{% elif plan.status == 'failed' and not a1_complete %}failed{% endif %}">
+        class="timeline-node {% if a1_active %}active{% elif a1_complete %}complete{% elif plan.status == 'failed' and not a1_complete %}failed{% endif %}"
+        {% if a1_complete %}onclick="showPipelineModal('Keyword Research Result', JSON.parse(document.getElementById('data-agent1').textContent))" style="cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'"{% endif %}>
         <div class="timeline-badge">
           {% if a1_active %}🤖{% elif a1_complete %}✅{% else %}🔎{% endif %}
         </div>
@@ -147,7 +159,8 @@
       <!-- AGENT 2: STRATEGY & CLUSTERING AGENT -->
       {% set a2_active = plan.status == 'generating_clusters' and plan.current_step == 'strategy_generation' %}
       {% set a2_complete = plan.status in ['cluster_review', 'approved'] %}
-      <div class="timeline-node {% if a2_active %}active{% elif a2_complete %}complete{% endif %}">
+      <div class="timeline-node {% if a2_active %}active{% elif a2_complete %}complete{% endif %}"
+           {% if a2_complete %}onclick="showPipelineModal('Strategy Generation Result', JSON.parse(document.getElementById('data-agent2').textContent))" style="cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'"{% endif %}>
         <div class="timeline-badge">
           {% if a2_active %}🤖{% elif a2_complete %}✅{% else %}📊{% endif %}
         </div>
@@ -188,7 +201,8 @@
       <!-- AGENT 3: SCHEDULING & OPTIMIZATION AGENT -->
       {% set a3_active = plan.status == 'generating_clusters' and plan.current_step == 'scheduling' %}
       {% set a3_complete = plan.status in ['cluster_review', 'approved'] %}
-      <div class="timeline-node {% if a3_active %}active{% elif a3_complete %}complete{% endif %}">
+      <div class="timeline-node {% if a3_active %}active{% elif a3_complete %}complete{% endif %}"
+           {% if a3_complete %}onclick="showPipelineModal('Scheduling Optimization Result', JSON.parse(document.getElementById('data-agent3').textContent))" style="cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'"{% endif %}>
         <div class="timeline-badge">
           {% if a3_active %}🤖{% elif a3_complete %}✅{% else %}📅{% endif %}
         </div>

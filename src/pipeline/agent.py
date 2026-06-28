@@ -92,7 +92,7 @@ def tool_create_jobs(
     if scheduled_dates is None:
         scheduled_dates = []
     if publish_targets is None:
-        publish_targets = ["wordpress", "linkedin"]
+        publish_targets = ["wordpress"]
     if newsletter_list_ids is None:
         newsletter_list_ids = []
     logger.info(f"Agent creating jobs for topics: {topics} targets: {publish_targets}")
@@ -414,14 +414,14 @@ Return a strict JSON response with a single key "num_pillars" containing the int
     return json.dumps(result)
 
 
-def tool_approve_and_schedule_latest_plan(publish_targets: List[str] = ["wordpress", "linkedin"]) -> str:
+def tool_approve_and_schedule_latest_plan(publish_targets: List[str] = ["wordpress"]) -> str:
     """
     Approves the latest pending 90-Day Hub & Spoke cluster plan and schedules
     the writing jobs across the calendar matrix sequentially.
 
     Args:
         publish_targets: List of targets to publish to. Can contain 'wordpress', 'linkedin'.
-                         Defaults to ['wordpress', 'linkedin']. To omit linkedin, pass ['wordpress'].
+                         Defaults to ['wordpress']. To include linkedin, pass ['wordpress', 'linkedin'].
     """
     logger.info(f"Agent approving and scheduling latest cluster plan with targets: {publish_targets}")
 
@@ -784,7 +784,7 @@ def get_agent_chat(history: List[dict] = []):
                                     "publish_targets": types.Schema(
                                         type="ARRAY",
                                         items=types.Schema(type="STRING"),
-                                        description="List of publish targets, e.g. ['wordpress', 'linkedin']. Default is ['wordpress', 'linkedin']."
+                                        description="List of publish targets, e.g. ['wordpress']. Default is ['wordpress']."
                                     )
                                 }
                             )

@@ -365,21 +365,38 @@ async def resume_pipeline(job_id: str) -> None:
                 refreshed_job = await session.get(ArticleJob, job_id)
                 focus_kw = refreshed_job.seed_keywords[0] if (refreshed_job and refreshed_job.seed_keywords) else ""
 
-        # Pull SERP format and secondary keywords to inject into planning
+        # ── Stage 2: SERP Enrichment ──────────────────────────────────────────
+        from src.pipeline.serp_enrichment import run_serp_enrichment
+        
         async with AsyncSessionLocal() as session:
             refreshed = await session.get(ArticleJob, job_id)
             kd = refreshed.keyword_data or {}
             scraped = refreshed.scraped_content or []
-            krd = refreshed.keyword_review_data or {}
-
-        serp_format = krd.get("serp_format", "") if krd else ""
-        
-        # Extract the suggested 5 secondary keywords from the job columns or keyword discovery stage
-        secondary_kws = refreshed.secondary_keywords or []
-        if not secondary_kws and kd and isinstance(kd, dict):
-            chosen_kw_dict = kd.get("chosen_keyword") or {}
-            if isinstance(chosen_kw_dict, dict):
-                secondary_kws = chosen_kw_dict.get("secondary_keywords") or []
+            
+        if not is_newsletter_summary:
+            logger.info(f"Job {job_id}: Launching Stage 2 (SERP Enrichment) for keyword '{focus_kw}'...")
+            serp_data = await run_serp_enrichment(
+                focus_keyword=focus_kw,
+                existing_scraped=scraped,
+                db_settings=settings_obj
+            )
+            serp_format = serp_data.get("serp_format", "guide")
+            scraped = serp_data.get("scraped_content", [])
+            paa_questions = serp_data.get("paa_questions", [])
+            
+            # Save updated scraped content back to job
+            await _save(job_id, scraped_content=scraped)
+            
+            # If we don't have secondary keywords, extract them from keyword_data
+            secondary_kws = refreshed.secondary_keywords or []
+            if not secondary_kws and kd and isinstance(kd, dict):
+                chosen_kw_dict = kd.get("chosen_keyword") or {}
+                if isinstance(chosen_kw_dict, dict):
+                    secondary_kws = chosen_kw_dict.get("secondary_keywords") or []
+        else:
+            serp_format = ""
+            paa_questions = []
+            secondary_kws = []
 
         # ── Step 2: Planning ──────────────────────────────────────────────────
         if not is_newsletter_summary and not job.content_plan:
@@ -433,6 +450,14 @@ async def resume_pipeline(job_id: str) -> None:
         else:
             plan = None
 
+        # ── Stage 3.5: Citation Verification ──────────────────────────────────
+        verified_citations = []
+        if not is_newsletter_summary and plan and getattr(plan, "required_citations", None):
+            logger.info(f"Job {job_id}: Launching Stage 3.5 (Citation Verification) for {len(plan.required_citations)} required citations...")
+            from src.pipeline.citations import verify_and_fetch_citations
+            verified_citations = await verify_and_fetch_citations(plan.required_citations, db_settings=settings_obj)
+            logger.info(f"Job {job_id}: Verified {len(verified_citations)} citations successfully.")
+
         # ── Step 3: Writing ───────────────────────────────────────────────────
         if not is_newsletter_summary and not job.article_markdown:
             # Check pause status
@@ -471,8 +496,9 @@ async def resume_pipeline(job_id: str) -> None:
                 plan,
                 company_context=full_context,
                 personalization_snippets=job.personalization_snippets or "",
-                people_also_ask=paa_list,
+                people_also_ask=paa_list or paa_questions,
                 competitor_urls=comp_links,
+                verified_citations=verified_citations,
             )
             input_tokens += write_usage["in"]
             output_tokens += write_usage["out"]

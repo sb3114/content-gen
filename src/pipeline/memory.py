@@ -269,3 +269,33 @@ def load_brand_context_memory() -> dict:
     except Exception as e:
         logger.warning(f"Could not load fallback brand context from DB: {e}")
     return {}
+
+
+async def record_failed_image_prompt(failed_prompt: str, error_message: str):
+    """
+    Analyzes an image generation prompt that triggered safety blocks or failed,
+    extracts safety/guardrail rules, and merges them into the image prompt memory.
+    """
+    if not failed_prompt:
+        return
+        
+    prompt = f"""\
+You are an AI Safety and Image Prompt auditor. The following image generation prompt failed or was blocked by safety filters:
+"{failed_prompt}"
+
+Failure Context/Reason:
+"{error_message}"
+
+Analyze the prompt to identify what concept, wording, or phrasing likely triggered the safety classifier or caused the failure (e.g., specific age descriptors like 'elderly' or 'child', touching, sensitive context, or brand names).
+Extract 1-2 evergreen guidelines/guardrails that our image prompt generator should follow in the future to avoid similar failures.
+Be specific and actionable (e.g. 'Avoid mentioning specific ages; use general descriptors', 'Avoid describing close physical touching between characters').
+
+Return ONLY a bulleted list of 1-2 concise rules. Do not write introductory text.
+"""
+    try:
+        rules, _ = await call_llm(prompt=prompt, tier="haiku")
+        rules = rules.strip()
+        if rules and "-" in rules:
+            await merge_and_save_image_rules(rules)
+    except Exception as e:
+        logger.error(f"Failed to record failed image prompt memory: {e}")

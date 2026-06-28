@@ -44,7 +44,7 @@ async def get_next_open_slot(session) -> datetime:
 async def schedule_writing_jobs(
     session,
     tasks: List[dict],
-    publish_targets: List[str] = ["wordpress", "linkedin"],
+    publish_targets: List[str] = ["wordpress"],
     cluster_plan_id: str = None,
     competitor_url: str = None,
 ) -> List[str]:

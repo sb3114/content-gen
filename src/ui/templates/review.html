@@ -212,20 +212,31 @@
 {# ── Pipeline Diagram ────────────────────────────────────────────────────── #}
 <div class="pipeline">
   {% set steps = [
-  ('research', 'Research'),
-  ('planning', 'Planning'),
-  ('writing', 'Writing'),
+  ('research', 'Research', job.keyword_data),
+  ('planning', 'Planning', job.content_plan),
+  ('writing', 'Writing', job.article_markdown),
   ] %}
   {% if job.publish_linkedin %}
-  {% set _ = steps.append(('linkedin', 'Adapting LI')) %}
+  {% set _ = steps.append(('linkedin', 'Adapting LI', job.linkedin_post)) %}
   {% endif %}
   {% if job.publish_newsletter %}
-  {% set _ = steps.append(('newsletter', 'Email Design')) %}
+  {% set _ = steps.append(('newsletter', 'Email Design', job.newsletter_html)) %}
   {% endif %}
 
-  {% for key, label in steps %}
+  <!-- Hidden data blocks for pipeline steps -->
+  {% for key, label, data in steps %}
+  <script type="application/json" id="data-{{ key }}">
+    {{ data | default(none) | tojson | safe }}
+  </script>
+  {% endfor %}
+
+  {% for key, label, data in steps %}
   <div
-    class="pipeline__node {% if job.current_step == key %}pipeline__node--active{% elif not job.current_step and job.status.value != 'failed' %}pipeline__node--done{% endif %}">
+    class="pipeline__node {% if job.current_step == key %}pipeline__node--active{% elif not job.current_step and job.status.value != 'failed' %}pipeline__node--done{% endif %}"
+    onclick="showPipelineModal('{{ label }} Result', JSON.parse(document.getElementById('data-{{ key }}').textContent))"
+    style="cursor: pointer; transition: transform 0.2s;"
+    onmouseover="this.style.transform='scale(1.05)'"
+    onmouseout="this.style.transform='scale(1)'">
     <div class="pipeline__circle"></div>
     <span class="pipeline__label">{{ label }}</span>
   </div>
@@ -325,9 +336,16 @@
   <div>
     <p class="status-card__title">Pipeline failed at step: {{ job.error_step or 'unknown' }}</p>
     <pre class="error-text">{{ job.error_message }}</pre>
-    <form action="/jobs/{{ job.id }}/retry" method="post" style="margin-top:1rem">
-      <button class="btn btn--danger">Retry Pipeline</button>
-    </form>
+    <div style="display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap;">
+      <form action="/jobs/{{ job.id }}/retry" method="post" style="margin: 0;">
+        <button class="btn btn--danger">Retry Pipeline</button>
+      </form>
+      {% if job.article_markdown or job.reviewed_markdown %}
+      <button type="button" class="btn btn--ghost" onclick="regenerateImages('{{ job.id }}')" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171; background: rgba(239, 68, 68, 0.05);">
+        🖼️ Retry Image Generation Only
+      </button>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% endif %}
@@ -351,8 +369,8 @@
 {# ── Review Form / Details Display ────────────────────────────────────────────── #}
 {# Skip content review form when job is at keyword confirmation gate #}
 {% set is_keyword_gate = (job.status.value == 'pending_review' and job.current_step == 'keyword_confirmation') %}
-{% set is_editable = (job.status.value in ['pending_review', 'scheduled', 'approved'] and not is_keyword_gate) %}
-{% set has_content = (job.status.value not in ['pending', 'running', 'resuming', 'queued', 'failed'] and not is_keyword_gate and (job.reviewed_markdown or job.article_markdown or job.reviewed_newsletter_html or job.newsletter_html)) %}
+{% set is_editable = (job.status.value in ['pending_review', 'scheduled', 'approved', 'failed'] and not is_keyword_gate) %}
+{% set has_content = (job.status.value not in ['pending', 'running', 'resuming', 'queued'] and not is_keyword_gate and (job.reviewed_markdown or job.article_markdown or job.reviewed_newsletter_html or job.newsletter_html)) %}
 
 {% if has_content %}
 <form action="/jobs/{{ job.id }}/approve" method="post" id="review-form">
@@ -386,6 +404,15 @@
           <label class="form-label" style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
             🖼️ Select Post Featured &amp; Social Image
           </label>
+          
+          {% if image_error %}
+          <div style="margin-top: 0.5rem; margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius); color: #f87171; font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>⚠️</span>
+            <div>
+              <strong>Failed to generate images:</strong> {{ image_error }}
+            </div>
+          </div>
+          {% endif %}
           
           {% if job.generated_images %}
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 0.5rem;">

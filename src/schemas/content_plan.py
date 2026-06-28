@@ -19,6 +19,7 @@ class ContentPlan(BaseModel):
     word_count_target: int
     content_angles: List[str]
     target_audience: str
+    required_citations: List[str] = []
 
 
 class LinkedInPostSchema(BaseModel):

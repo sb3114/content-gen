@@ -28,6 +28,7 @@ async def call_llm(
     Routes requests to Claude CLI (if configured) or Google Gemini API.
     
     Tiers:
+      - "opus": Claude 3 Opus (complex reasoning/planning)
       - "sonnet": Claude 3.5 Sonnet or Gemini 2.5 Pro (complex tasks/writing)
       - "haiku": Claude 3.5 Haiku or Gemini 2.0 Flash (validation, summary, tags, metadata)
     """
@@ -46,7 +47,12 @@ async def call_llm(
             raise ValueError("Claude Setup Token is not configured in Settings. Please save a setup-token or switch to Gemini.")
 
         # Determine target model
-        model = "sonnet" if tier == "sonnet" else "haiku"
+        if tier == "opus":
+            model = "opus"
+        elif tier == "sonnet":
+            model = "sonnet"
+        else:
+            model = "haiku"
 
         # Inner helper to invoke Claude CLI asynchronously
         async def _run_claude(model_name: str) -> tuple[str, dict]:
@@ -173,11 +179,19 @@ async def call_llm(
         try:
             return await _run_claude(model)
         except LLMRateLimitException as exc:
-            # Check if fallback from Sonnet to Haiku is enabled
+            # Check if fallback is enabled
             allow_fallback = db_settings.allow_fallback_to_haiku if db_settings else True
-            if tier == "sonnet" and allow_fallback:
+            
+            if tier == "opus" and allow_fallback:
+                logger.warning(f"Claude Opus rate limit hit. Falling back to Sonnet: {exc}")
+                try:
+                    return await _run_claude("sonnet")
+                except LLMRateLimitException as exc2:
+                    logger.warning(f"Claude Sonnet rate limit hit during fallback. Falling back to Haiku: {exc2}")
+                    return await _run_claude("haiku")
+                    
+            elif tier == "sonnet" and allow_fallback:
                 logger.warning(f"Claude Sonnet rate limit hit. Falling back to Haiku: {exc}")
-                # Retry immediately using haiku
                 return await _run_claude("haiku")
             else:
                 raise

@@ -29,5 +29,116 @@
   <main class="main-content {% block body_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  <style>
+    /* Generic Modal for Pipeline Steps */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 90%;
+      max-width: 900px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    .modal-header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-title {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1.5rem;
+      padding: 0;
+      line-height: 1;
+    }
+    .modal-close:hover {
+      color: var(--text);
+    }
+    .modal-body {
+      padding: 1.5rem;
+      overflow-y: auto;
+      font-family: 'Inter', monospace;
+      font-size: 0.9rem;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .modal-body pre {
+      background: var(--bg-body);
+      padding: 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      font-family: monospace;
+    }
+  </style>
+
+  <div id="pipeline-modal" class="modal-overlay" onclick="closePipelineModal(event)">
+    <div class="modal-container" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title" id="pipeline-modal-title">Pipeline Result</h3>
+        <button class="modal-close" onclick="closePipelineModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="pipeline-modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    function showPipelineModal(title, rawContent) {
+      document.getElementById('pipeline-modal-title').innerText = title;
+      const body = document.getElementById('pipeline-modal-body');
+      
+      let displayContent = rawContent;
+      if (!displayContent) {
+        displayContent = 'No result available for this step yet.';
+      } else if (typeof displayContent === 'object') {
+        displayContent = JSON.stringify(displayContent, null, 2);
+      }
+      
+      body.innerHTML = '<pre>' + escapeHtml(displayContent) + '</pre>';
+      document.getElementById('pipeline-modal').classList.add('active');
+    }
+
+    function closePipelineModal(e) {
+      if (e && e.target !== document.getElementById('pipeline-modal')) return;
+      document.getElementById('pipeline-modal').classList.remove('active');
+    }
+
+    function escapeHtml(unsafe) {
+      if (typeof unsafe !== 'string') return unsafe;
+      return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
 </body>
 </html>

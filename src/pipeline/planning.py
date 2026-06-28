@@ -23,18 +23,17 @@ You are an expert SEO strategist and healthcare/elderly care content architect. 
 
 ## Instructions
 1. **Title & Click-Worthiness**: Create a compelling, professional, and SEO-friendly title under 60 characters.
-2. **Keyword Optimization**: Use the primary and secondary keywords from the keyword research data provided to you strictly..
+2. **Keyword Optimization**: Use the primary and secondary keywords from the keyword research data provided to you strictly.
 3. **Outline Architecture (SEO & GEO)**:
    - Structure an outline (H2/H3 levels) with clear, intent-driven sections.
    - **GEO / Local Context**: You MUST include a dedicated early section (directly after the introduction / under the first H2) reserved for a "GEO Local & Key Summary Box". This section will contain exactly 4 key-point bullets capturing key highlights from the whole blog that would match high intent-search topics and user queries.
-   - {comparison_instruction}
-   - Design outline sections that invite authoritative evidence, public data, and guidelines from well-known healthcare, dementia, and Alzheimer's resources (e.g., NHS, alzheimers.org.uk, dementiaaction.org.uk,dementiashare.com, brightmind.ai, mind.org.uk, Alzheimer's Society, Alzheimer's Association, WHO, National Institute on Aging, ageuk.org.uk).
+{serp_format_directive}
    - **Internal Linking**: If relevant, design your outline sections to explicitly reference our existing published blogs provided in the Inputs. Suggest adding a natural hyperlink or a "Further Reading" call-out referencing the existing blog title and URL.
 4. **Volume & Target**: Target 1500-2500 words of deeply informative, empathetic, and authoritative content.
 5. **Meta Description**: Provide a high-density, click-worthy 160-character meta description.
 6. **Unique Angles**: Formulate 3-5 unique, authentic writing angles for the writer.
+7. **Required Citations**: You MUST output a list of 2-5 highly specific, authoritative topics, statistics, or reports that you will need to cite in the article. Make each item a highly detailed and specific search query targeting the exact, deep resource page or article rather than a generic homepage or general topic (e.g., `["NHS guide on daily living with dementia personal care advice page", "WHO global report on falls prevention 2024 statistics"]`). The system will search Google for these exact queries to fetch specific resource URLs.
 
-{serp_format_section}
 Return valid JSON (ContentPlan schema).
 """
 
@@ -109,11 +108,6 @@ async def run_planning(
     if company_context and company_context.strip():
         ctx_section = f"## Company Context (Base Your Plan On This)\n{company_context}\n"
 
-    # SERP format injection
-    serp_section = ""
-    if serp_format:
-        serp_section = f"\nCRITICAL FORMAT REQUIREMENT: Google is currently ranking **{serp_format}** posts for this keyword. Structure the outline to match this format.\n"
-
     # Fetch existing published blogs for internal linking
     from src.database import AsyncSessionLocal
     from src.models.blog import PublishedBlog
@@ -131,31 +125,49 @@ async def run_planning(
         import logging
         logging.getLogger(__name__).error(f"Failed to load existing blogs for planning: {e}")
 
-    # Determine if a comparison section is needed based on the serp_format or keywords
-    needs_comparison = False
-    if serp_format:
-        needs_comparison = (serp_format.strip().lower() == "comparison")
-    else:
-        # Fallback check: if the topic/keyword indicates a comparison, enable it
-        check_text = (topic or "").lower() + " " + (focus_keyword or "").lower()
-        if "vs" in check_text or "compare" in check_text or "comparison" in check_text or "alternative" in check_text:
-            needs_comparison = True
-
+    # SERP format directive
+    fmt = serp_format.strip().lower() if serp_format else "guide"
+    
+    # Check if a comparison is needed based on serp_format or keywords/topic indicating a comparison layout
+    needs_comparison = (fmt == "comparison") or ("vs" in topic.lower() or "compare" in topic.lower() or "comparison" in topic.lower() or "alternative" in topic.lower())
+    
+    comparison_research = ""
     if needs_comparison:
-        comparison_instruction = (
-            "Since the search intent rewards a comparison format, you MUST design the outline to compare "
-            "different solutions, technologies, or providers relevant to this specific topic/context. "
-            "Identify the actual top solutions/providers for this topic (e.g. using search grounding or competitor insights) "
-            "and construct outline sections evaluating their features, pros & cons, and costs/pricing models. "
+        # Import call_llm inside run_planning to avoid circular dependencies
+        from src.pipeline.llm import call_llm
+        search_prompt = f"What are the top solutions, products, or providers for '{topic}'? Research and list the actual top options, their key features, pros/cons, and pricing or costs if available. Provide a concise factual summary."
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Running comparison research query using search grounding: '{search_prompt}'")
+            comparison_research_text, _ = await call_llm(
+                prompt=search_prompt,
+                tier="sonnet",
+                use_search_grounding=True
+            )
+            comparison_research = f"\n## Research on Providers/Alternatives (For Comparison Outline)\n{comparison_research_text}\n"
+            logger.info("Successfully fetched comparison research details via search grounding.")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to fetch comparison research via search grounding: {e}")
+
+    serp_format_directive = ""
+    if fmt == "comparison" or needs_comparison:
+        serp_format_directive = (
+            "   - **SERP FORMAT DIRECTIVE (Comparison)**: Google is rewarding COMPARISON content for this keyword. "
+            "You MUST design the outline to compare different solutions, technologies, or providers relevant to this specific topic/context. "
+            "Use the provided Research on Providers/Alternatives to evaluate their features, pros & cons, and costs/pricing models. "
             "Subtly and naturally position BondNow as a modern elderly care technology solution only where appropriate, "
             "maintaining an objective, factual, and clinical tone for the comparison."
         )
+    elif fmt == "listicle":
+        serp_format_directive = "   - **SERP FORMAT DIRECTIVE (Listicle)**: Google is rewarding LISTICLE content. Structure with numbered items or clear lists."
+    elif fmt == "how-to":
+        serp_format_directive = "   - **SERP FORMAT DIRECTIVE (How-to)**: Google is rewarding HOW-TO content. Structure with a step-by-step progression."
+    elif fmt == "tool":
+        serp_format_directive = "   - **SERP FORMAT DIRECTIVE (Tool/Resource)**: Google is rewarding TOOL/RESOURCE content. Include actionable templates or frameworks."
     else:
-        comparison_instruction = (
-            "Do NOT include a dedicated competitor or product comparison section or table, as this article "
-            "type does not warrant a comparison. Focus instead on providing a high-quality, informative guide/layout "
-            "matching the target format."
-        )
+        serp_format_directive = "   - **SERP FORMAT DIRECTIVE (Guide)**: Google is rewarding GUIDE content. Structure as an authoritative deep-dive. Do NOT include a dedicated competitor comparison section unless specifically requested."
 
     prompt = _PROMPT.format(
         company_context_section=ctx_section,
@@ -164,9 +176,11 @@ async def run_planning(
         keyword_data=json.dumps(keyword_data, indent=2),
         scraped_summary=json.dumps(summaries, indent=2),
         existing_blogs_section=existing_blogs_text,
-        serp_format_section=serp_section,
-        comparison_instruction=comparison_instruction,
+        serp_format_directive=serp_format_directive,
     )
+
+    if comparison_research:
+        prompt += f"\n\n{comparison_research}"
 
     if focus_keyword:
         prompt += f"\n\nCRITICAL SEO REQUIREMENT:\nYou MUST use '{focus_keyword}' exactly as the 'focus_keyword' field in the returned JSON. Base the article outline, angles, and title on ranking for this focus keyword."
@@ -179,12 +193,12 @@ async def run_planning(
 
     from src.pipeline.llm import call_llm
 
-    # 1. Run core high-thinking planning outline (Sonnet)
+    # 1. Run core high-thinking planning outline (Opus)
     plan_text, usage_sonnet = await call_llm(
         prompt=prompt,
-        tier="sonnet",
+        tier="opus",
         response_schema=ContentPlan,
-        use_search_grounding=needs_comparison
+        use_search_grounding=False
     )
     
     plan = ContentPlan(**json.loads(plan_text))

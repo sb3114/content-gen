@@ -90,31 +90,86 @@ async def generate_images_for_job(job, db_settings=None, prompt_override: Option
         'imagen-4.0-generate-001',
     ]
     
-    response = None
-    for model_name in models_to_try:
+    saved_images = []
+    max_attempts = 6
+    attempt = 0
+    model_index = 0
+    
+    while len(saved_images) < 3 and attempt < max_attempts:
+        model_name = models_to_try[model_index]
+        needed = 3 - len(saved_images)
+        logger.info(f"Attempt {attempt + 1}: Generating {needed} image(s) using {model_name}...")
         try:
-            logger.info(f"Generating 3 images using {model_name}...")
-            response = client.models.generate_images(
+            response = client.models.generate_image(
                 model=model_name,
                 prompt=image_prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=3,
-                    output_mime_type='image/jpeg',
-                    aspect_ratio="1:1"
+                config=types.GenerateImageConfig(
+                    numberOfImages=needed,
+                    outputMimeType='image/jpeg',
+                    aspectRatio="1:1"
                 )
             )
-            break
+            if response and getattr(response, 'generated_images', None):
+                new_images = response.generated_images
+                logger.info(f"Model {model_name} successfully generated {len(new_images)} image(s).")
+                saved_images.extend(new_images)
+            else:
+                logger.warning(f"Model {model_name} returned empty generated_images (potential safety block).")
+                model_index = (model_index + 1) % len(models_to_try)
+                
+                # Feedback to system memory
+                from src.pipeline.memory import record_failed_image_prompt
+                import asyncio
+                asyncio.create_task(record_failed_image_prompt(
+                    image_prompt,
+                    f"Model {model_name} returned empty generated_images (potential safety block)."
+                ))
+                
+                # Automatically regenerate prompt
+                logger.info("Automatically regenerating image prompt to bypass safety block...")
+                feedback_instruction = (
+                    f"The previous prompt was blocked by safety filters: '{image_prompt}'. "
+                    "Write an alternative, safer, and more abstract prompt that does not trigger safety filters (e.g. avoid realistic human close-ups or physical touching if they caused issues)."
+                )
+                image_prompt = await generate_image_prompt(title, body, db_settings, feedback=feedback_instruction)
+                if job:
+                    job.nano_banana_prompt = image_prompt
         except Exception as e:
             logger.warning(f"Failed to generate images using {model_name}: {e}")
+            model_index = (model_index + 1) % len(models_to_try)
             
-    if not response:
-        raise ValueError("Image generation failed. Response is None.")
-    if not getattr(response, 'generated_images', None):
-        logger.error(f"Image generation failed. Response: {response}")
+            # Feedback to system memory
+            from src.pipeline.memory import record_failed_image_prompt
+            import asyncio
+            asyncio.create_task(record_failed_image_prompt(
+                image_prompt,
+                f"Failed using model {model_name} with exception: {str(e)}"
+            ))
+            
+            # Automatically regenerate prompt if safety/policy related
+            err_str = str(e).lower()
+            if any(term in err_str for term in ["safety", "block", "policy", "content", "filter"]):
+                logger.info("Automatically regenerating image prompt to bypass safety block...")
+                feedback_instruction = (
+                    f"The previous prompt was blocked by safety filters: '{image_prompt}'. "
+                    "Write an alternative, safer, and more abstract prompt that does not trigger safety filters."
+                )
+                image_prompt = await generate_image_prompt(title, body, db_settings, feedback=feedback_instruction)
+                if job:
+                    job.nano_banana_prompt = image_prompt
+            
+        attempt += 1
+        if len(saved_images) < 3 and attempt < max_attempts:
+            import asyncio
+            wait_time = 2 ** (attempt - 1)
+            logger.info(f"Sleeping for {wait_time}s before next attempt...")
+            await asyncio.sleep(wait_time)
+            
+    if not saved_images:
         raise ValueError("Image generation failed with all available Imagen models (empty generated_images).")
         
     saved_paths = []
-    for idx, img in enumerate(response.generated_images):
+    for idx, img in enumerate(saved_images):
         import uuid
         # Use a unique identifier to avoid browser caching issues when regenerating
         filename = f"{job.id}_{uuid.uuid4().hex[:8]}_{idx}.jpg"

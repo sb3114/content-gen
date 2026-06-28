@@ -227,7 +227,7 @@ async def create_job(
     competitor_urls: str = Form(""),
     seed_keywords: str = Form(""),
     personalization_snippets: Optional[str] = Form(None),
-    publish_targets: list[str] = Form(default=["wordpress", "linkedin"]),
+    publish_targets: list[str] = Form(default=["wordpress"]),
     newsletter_type: str = Form("update"),
     newsletter_timeframe: Optional[str] = Form(None),
     newsletter_list_ids: list[int] = Form(default=[]),
@@ -316,8 +316,15 @@ async def review_page(request: Request, session: Session, job_id: str):
         except Exception:
             pass
 
+    image_error = request.query_params.get("image_error")
+
     return templates.TemplateResponse(
-        "review.html", {"request": request, "job": job, "brevo_lists": brevo_lists}
+        "review.html", {
+            "request": request, 
+            "job": job, 
+            "brevo_lists": brevo_lists,
+            "image_error": image_error
+        }
     )
 
 
@@ -534,6 +541,7 @@ async def re_review_job(session: Session, job_id: str):
     job.status = JobStatus.pending_review
     job.updated_at = datetime.utcnow()
     
+    image_err = None
     if not job.generated_images:
         try:
             from src.pipeline.image_gen import generate_images_for_job
@@ -545,9 +553,14 @@ async def re_review_job(session: Session, job_id: str):
                 job.selected_image = images[0]
         except Exception as e:
             logger.error(f"Failed to generate images on re-review: {e}")
+            image_err = str(e)
             
     session.add(job)
     await session.commit()
+    
+    if image_err:
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/jobs/{job_id}?image_error={quote(image_err)}", status_code=303)
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
 
@@ -585,12 +598,20 @@ async def regenerate_job_images(
         job.generated_images = images
         if images:
             job.selected_image = images[0]
+        
+        # If the job had failed previously, restore it to pending_review since image generation succeeded
+        if job.status == JobStatus.failed:
+            job.status = JobStatus.pending_review
+            job.error_message = None
+            job.error_step = None
+
         job.updated_at = datetime.utcnow()
         session.add(job)
         await session.commit()
     except Exception as e:
         logger.error(f"Failed to regenerate images: {e}")
-        raise HTTPException(500, f"Failed to regenerate images: {str(e)}")
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/jobs/{job_id}?image_error={quote(str(e))}", status_code=303)
         
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
@@ -894,7 +915,7 @@ async def create_cluster_plan(
     max_search_volume: int = Form(1000),
     max_difficulty: int = Form(40),
     competitor_url: Optional[str] = Form(None),
-    publish_targets: list[str] = Form(default=["wordpress", "linkedin"])
+    publish_targets: list[str] = Form(default=["wordpress"])
 ):
     """Creates a new stateful ClusterPlan and triggers Agent 1 keyword discovery."""
     final_seed = seed_topic.strip() if (seed_topic and seed_topic.strip()) else "Brand Strategy"
@@ -1192,7 +1213,7 @@ async def approve_cluster_plan(
     if not plan:
         raise HTTPException(status_code=404, detail="Cluster plan not found")
 
-    publish_targets = plan.publish_targets or ["wordpress", "linkedin"]
+    publish_targets = plan.publish_targets or ["wordpress"]
     if targets:
         publish_targets = [t.strip() for t in targets.split(",") if t.strip()]
 

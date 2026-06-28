@@ -31,15 +31,19 @@ You are an elite healthtech, elderly care, and healthcare copywriter. Write a hi
 - **Content Angles & Themes**:
 {angles}
 
+{verified_citations_section}
+
 ## Strict Writing Rules
 
 1. **Information Accuracy & Sources**:
-   - **DO NOT INVENT or hallucinate any information, claims, or facts.** Use Google Search to find and verify recent, accurate information and news. Do not rely on internal memory for facts.
-   - Base all medical, technological, and caregiving knowledge strictly on well-known healthcare, elderly care, dementia, and Alzheimer's institutions (e.g., Mayo Clinic, Alzheimer's Association, National Institute on Aging, WHO, NHS, ageuk.org.uk, brightmind.ai, alzheimers.org.uk, dementiaaction.org.uk, dementiashare.com, mind.org.uk)
+   - **DO NOT INVENT or hallucinate any information, claims, or facts.** Do not rely on internal memory for facts.
+   - Base all medical, technological, and caregiving knowledge strictly on the Verified Citations provided above.
+
 2. **Data, Statistics & Verifiable Evidence**:
    - Use real, public statistics, numbers, data, and evidence. **NEVER invent, approximate, or fabricate any numbers or percentages.**
-   - For every statistic, claim, or clinical guideline, you **MUST provide a clickable HTML hyperlink** pointing directly to the specific, verified resource page, blog, or article in question (e.g., `<a href="https://www.alz.org/alzheimers-dementia/facts-figures">Alzheimer's Association Facts & Figures</a>` or `<a href="https://www.nhs.uk/conditions/dementia/about-dementia/">NHS Dementia Guide</a>`). Ensure these links are formatted correctly as standard HTML `<a>` tags. Do NOT use markdown.
-   - **CRITICAL**: Never link to generic homepages of websites (such as `https://www.alz.org`, `https://www.mayoclinic.org`, `https://www.nhs.uk`, `https://www.who.int`, `https://www.nia.nih.gov`, or `https://www.ageuk.org.uk`). You MUST link directly to the specific resource page, article, report, or blog post that contains the actual data, statistic, or guideline. Ensure all URLs are fully accurate, specific, and verified using Google Search grounding. If Google Search grounding does not supply the exact specific resource URL, search for it or write the claim/statistic in a way that allows you to link directly to a specific source page. Do not hallucinate or guess paths.
+   - For every statistic, claim, or clinical guideline, you **MUST provide a clickable HTML hyperlink** pointing directly to the specific, verified resource page provided in the Verified Citations section. 
+   - **CRITICAL**: You may ONLY use the exact URLs provided in the Verified Citations. Do NOT invent or guess any URLs or paths. Ensure these links are formatted correctly as standard HTML `<a>` tags. Do NOT use markdown.
+   - **CRITICAL URL RULE**: Never link to generic homepages of websites (such as `https://www.alz.org`, `https://www.mayoclinic.org`, `https://www.nhs.uk`, `https://www.who.int`, `https://www.nia.nih.gov`, or `https://www.ageuk.org.uk`). Every link MUST point directly to the specific sub-page, article, report, or blog post containing the actual facts.
 
 3. **SEO Foundations**:
    - Maintain excellent semantic keyword density naturally (no keyword stuffing).
@@ -93,6 +97,7 @@ async def run_writing(
     personalization_snippets: str = "",
     people_also_ask: list[str] = None,
     competitor_urls: list[str] = None,
+    verified_citations: list[dict] = None,
 ) -> tuple[str, dict]:
     outline_text = ""
     for section in plan.outline:
@@ -145,6 +150,19 @@ async def run_writing(
                 comp_section += f"- {url}\n"
             comp_section += "You MUST use these competitor articles as a structural reference. Understand their layout, depth, and main points, and adapt/re-engineer them to be superior, original, and beautifully tailored to our brand **BondNow** (https://bondnow.net) using our discovered keywords.\n\n"
 
+    # Format verified citations
+    citations_sec = ""
+    if verified_citations:
+        citations_sec = "## Verified Citations (MANDATORY TO USE)\nYou MUST use the following verified citations for your claims. Do NOT invent or guess any URLs. You may ONLY link to these specific URLs. Use the provided context to ensure factual accuracy.\n\n"
+        for idx, cit in enumerate(verified_citations, 1):
+            citations_sec += f"### Citation {idx}: {cit.get('query')}\n"
+            citations_sec += f"URL: {cit.get('url')}\n"
+            if cit.get('title'):
+                citations_sec += f"Title: {cit.get('title')}\n"
+            if cit.get('context'):
+                citations_sec += f"Context Extract:\n{cit.get('context')}\n"
+            citations_sec += "\n"
+
     # Load persistent style memory guidelines (user's past writing style feedback & edits)
     from src.pipeline.memory import load_style_memory
     style_mem = load_style_memory()
@@ -159,6 +177,7 @@ async def run_writing(
         personalization_section=pers_section,
         paa_section=paa_sec,
         competitor_section=comp_section,
+        verified_citations_section=citations_sec,
         style_memory_section=style_sec,
         title=plan.chosen_title,
         focus_keyword=plan.focus_keyword,
@@ -176,8 +195,8 @@ async def run_writing(
 
     text, usage = await call_llm(
         prompt=prompt,
-        tier="sonnet",
-        use_search_grounding=True
+        tier="opus",
+        use_search_grounding=False
     )
     
     nano_banana_prompt = None
